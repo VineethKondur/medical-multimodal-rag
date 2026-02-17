@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environments (anywhere)
+venv/
+*/venv/
+
+# Env files
+.env
+*.env
+
+# Django
+db.sqlite3
+media/
+staticfiles/
+
+# VS Code
+.vscode/
+
+# FAISS index
+faiss_index/
+*/faiss_index/
+
+# OS
+.DS_Store

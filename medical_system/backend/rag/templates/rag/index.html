@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Medical Report Assistant</title>
+    <style>
+        body { font-family: 'Segoe UI', Arial, sans-serif; margin: 40px; background-color: #f9f9f9; }
+        .container { max-width: 700px; margin: auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        h2 { margin-top: 30px; color: #333; font-size: 1.2rem; }
+        input, textarea, button { width: 100%; padding: 12px; margin-top: 10px; border-radius: 5px; border: 1px solid #ddd; box-sizing: border-box; }
+        button { background: #007bff; color: white; border: none; font-weight: bold; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+        .answer { margin-top: 20px; padding: 15px; background: #e9ecef; border-left: 5px solid #007bff; display: none; }
+        .status-msg { font-size: 0.9rem; margin-top: 5px; }
+        #uploadStatus { color: green; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Medical Report System</h1>
+
+    <h2>1. Upload Medical Report (PDF)</h2>
+    <form id="uploadForm">
+        {% csrf_token %}
+        <input type="file" name="file" id="fileInput" accept=".pdf" required>
+        <button type="submit" id="uploadBtn">Upload & Index</button>
+        <div id="uploadStatus" class="status-msg"></div>
+    </form>
+    
+    <h2>2. Ask a Question</h2>
+    <form id="queryForm">
+        {% csrf_token %}
+        <textarea id="questionInput" placeholder="What are the key findings?" required></textarea>
+        <button type="submit" id="queryBtn">Ask AI</button>
+    </form>
+
+    <div id="answerDiv" class="answer">
+        <strong>Answer:</strong>
+        <p id="answerText"></p>
+    </div>
+</div>
+
+<script>
+    // Helper to get CSRF token
+    const getCSRF = () => document.querySelector('[name=csrfmiddlewaretoken]').value;
+
+    // Handle File Upload
+    document.getElementById('uploadForm').onsubmit = async (e) => {
+        e.preventDefault();
+        const status = document.getElementById('uploadStatus');
+        const btn = document.getElementById('uploadBtn');
+        
+        status.innerText = "Processing PDF... please wait.";
+        btn.disabled = true;
+
+        const formData = new FormData();
+        formData.append('file', document.getElementById('fileInput').files[0]);
+
+        try {
+            const response = await fetch("/api/upload/", {
+                method: "POST",
+                headers: { "X-CSRFToken": getCSRF() },
+                body: formData
+            });
+            const data = await response.json();
+            if (response.ok) {
+                status.style.color = "green";
+                status.innerText = "✅ " + data.message;
+            } else {
+                status.style.color = "red";
+                status.innerText = "❌ Error: " + (data.error || "Upload failed");
+            }
+        } catch (err) {
+            status.innerText = "Server connection error.";
+        } finally {
+            btn.disabled = false;
+        }
+    };
+
+    // Handle Asking Question
+    document.getElementById('queryForm').onsubmit = async (e) => {
+        e.preventDefault();
+        const btn = document.getElementById('queryBtn');
+        const answerDiv = document.getElementById('answerDiv');
+        const answerText = document.getElementById('answerText');
+        const question = document.getElementById('questionInput').value;
+
+        btn.disabled = true;
+        btn.innerText = "Searching document...";
+
+        try {
+            const response = await fetch("/api/query/", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-CSRFToken": getCSRF()
+                },
+                body: JSON.stringify({ "question": question })
+            });
+            const data = await response.json();
+            
+            answerDiv.style.display = "block";
+            answerText.innerText = data.answer || data.error || "Unknown error occurred.";
+        } catch (err) {
+            alert("Connection error occurred.");
+        } finally {
+            btn.disabled = false;
+            btn.innerText = "Ask AI";
+        }
+    };
+</script>
+</body>
+</html>
