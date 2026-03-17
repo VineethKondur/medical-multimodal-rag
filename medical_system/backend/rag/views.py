@@ -14,10 +14,7 @@ from .services.qa import generate_answer
 MEDIA_DIR = "media"
 os.makedirs(MEDIA_DIR, exist_ok=True)
 
-#################################################
 # Conversation History
-#################################################
-
 def get_conversation_history(session_key):
     return cache.get(f"chat_history_{session_key}", [])
 
@@ -34,10 +31,7 @@ def add_to_conversation(session_key, role, content):
 def clear_conversation(session_key):
     cache.delete(f"chat_history_{session_key}")
 
-#################################################
 # Upload & Index PDF
-#################################################
-
 @csrf_exempt
 @api_view(["POST"])
 @parser_classes([MultiPartParser, FormParser])
@@ -72,11 +66,7 @@ def upload_and_index(request):
             "error": str(e)
         }, status=500)
 
-
-#################################################
 # Query Document
-#################################################
-
 @csrf_exempt
 @api_view(["POST"])
 @parser_classes([JSONParser])
@@ -124,10 +114,6 @@ def query_document(request):
             "error": str(e)
         }, status=500)
 
-
-#################################################
 # UI
-#################################################
-
 def ui(request):
     return render(request, "rag/index.html")
