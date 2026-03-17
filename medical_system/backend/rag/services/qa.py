@@ -4,20 +4,24 @@ from groq import Groq
 
 load_dotenv()
 
-client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+# Cache the Groq client to avoid recreating it on every request
+_cached_client = None
+
+def get_groq_client():
+    """Get or create cached Groq client singleton"""
+    global _cached_client
+    if _cached_client is None:
+        _cached_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+    return _cached_client
+
 
 def generate_answer(context: str, question: str) -> str:
-    prompt = f"""
-You are an assistant that explains the content of documents clearly and in detail,
-based strictly on the provided context.
+    print("LLM request started")
 
-Rules:
-- Use ONLY the information present in the context.
-- Answer it by giving a detailed explanation.
-- Do NOT explain how you found the answer.
-- Do NOT mention the context, document, or reasoning process.
-- If the answer is not explicitly present, reply exactly with:
-  "I cannot find the answer in the document."
+    client = get_groq_client()
+
+    prompt = f"""
+Answer the question using only the context below.
 
 Context:
 {context}
@@ -25,7 +29,7 @@ Context:
 Question:
 {question}
 
-Answer (detailed explanation):
+Answer:
 """
 
     response = client.chat.completions.create(
@@ -33,4 +37,7 @@ Answer (detailed explanation):
         messages=[{"role": "user", "content": prompt}],
         temperature=0.2,
     )
+
+    print("LLM response received")
+
     return response.choices[0].message.content.strip()

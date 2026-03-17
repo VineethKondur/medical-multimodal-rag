@@ -6,4 +6,6 @@ def split_text(text: str):
         chunk_size=800,
         chunk_overlap=100
     )
-    return splitter.create_documents([text])
+
+    chunks = splitter.split_text(text)
+    return [Document(page_content=c) for c in chunks]

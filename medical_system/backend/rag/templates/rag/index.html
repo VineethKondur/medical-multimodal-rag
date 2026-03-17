@@ -1,114 +1,570 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Medical Report Assistant</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
-        body { font-family: 'Segoe UI', Arial, sans-serif; margin: 40px; background-color: #f9f9f9; }
-        .container { max-width: 700px; margin: auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-        h2 { margin-top: 30px; color: #333; font-size: 1.2rem; }
-        input, textarea, button { width: 100%; padding: 12px; margin-top: 10px; border-radius: 5px; border: 1px solid #ddd; box-sizing: border-box; }
-        button { background: #007bff; color: white; border: none; font-weight: bold; cursor: pointer; }
-        button:hover { background: #0056b3; }
-        button:disabled { background: #ccc; cursor: not-allowed; }
-        .answer { margin-top: 20px; padding: 15px; background: #e9ecef; border-left: 5px solid #007bff; display: none; }
-        .status-msg { font-size: 0.9rem; margin-top: 5px; }
-        #uploadStatus { color: green; }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            color: white;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 8px;
+            text-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        .header p {
+            font-size: 1.1rem;
+            opacity: 0.9;
+        }
+
+        .main-card {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.15);
+            overflow: hidden;
+        }
+
+        .card {
+            padding: 30px;
+        }
+
+        .card-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+
+        .card-icon {
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 20px;
+        }
+
+        .card-title {
+            font-size: 1.3rem;
+            font-weight: 600;
+            color: #1a1a2e;
+        }
+
+        .divider {
+            height: 1px;
+            background: linear-gradient(90deg, transparent, #e0e0e0, transparent);
+        }
+
+        /* Upload Section */
+        .upload-area {
+            border: 2px dashed #c4c4c4;
+            border-radius: 12px;
+            padding: 40px;
+            text-align: center;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            background: #fafafa;
+        }
+
+        .upload-area:hover {
+            border-color: #667eea;
+            background: #f5f3ff;
+        }
+
+        .upload-area.dragover {
+            border-color: #667eea;
+            background: #f5f3ff;
+            transform: scale(1.02);
+        }
+
+        .upload-icon {
+            font-size: 48px;
+            margin-bottom: 15px;
+        }
+
+        .upload-text {
+            color: #666;
+            margin-bottom: 10px;
+        }
+
+        .upload-text strong {
+            color: #667eea;
+        }
+
+        .file-info {
+            display: none;
+            margin-top: 15px;
+            padding: 12px;
+            background: #e8f5e9;
+            border-radius: 8px;
+            color: #2e7d32;
+        }
+
+        .file-info.show {
+            display: block;
+        }
+
+        /* Buttons */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 14px 28px;
+            border: none;
+            border-radius: 10px;
+            font-size: 1rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            width: 100%;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        /* Query Section */
+        .query-input {
+            width: 100%;
+            padding: 16px;
+            border: 2px solid #e0e0e0;
+            border-radius: 12px;
+            font-size: 1rem;
+            font-family: inherit;
+            resize: vertical;
+            min-height: 100px;
+            transition: border-color 0.3s ease;
+        }
+
+        .query-input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .query-input::placeholder {
+            color: #999;
+        }
+
+        .query-btn {
+            margin-top: 15px;
+            width: 100%;
+        }
+
+        /* Answer Section */
+        .answer-container {
+            min-height: 100px;
+        }
+
+        .answer-placeholder {
+            text-align: center;
+            padding: 30px;
+            color: #999;
+            background: #f9f9f9;
+            border-radius: 12px;
+        }
+
+        .answer-content {
+            background: linear-gradient(135deg, #f5f7fa 0%, #ffffff 100%);
+            padding: 20px;
+            border-radius: 12px;
+            border-left: 4px solid #667eea;
+            line-height: 1.7;
+            color: #333;
+            animation: fadeIn 0.5s ease;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* Loading Spinner */
+        .spinner {
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255,255,255,0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Status Messages */
+        .status {
+            padding: 15px;
+            border-radius: 10px;
+            margin-top: 15px;
+            display: none;
+        }
+
+        .status.show {
+            display: block;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .status-success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .status-error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        /* History Section */
+        .history-section {
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid #eee;
+        }
+
+        .history-title {
+            font-size: 0.9rem;
+            color: #666;
+            margin-bottom: 10px;
+        }
+
+        .history-item {
+            padding: 10px 15px;
+            margin-bottom: 8px;
+            border-radius: 8px;
+            font-size: 0.9rem;
+        }
+
+        .history-user {
+            background: #e3f2fd;
+            color: #1565c0;
+        }
+
+        .history-ai {
+            background: #f3e5f5;
+            color: #7b1fa2;
+        }
+
+        /* Responsive */
+        @media (max-width: 600px) {
+            body {
+                padding: 10px;
+            }
+
+            .header h1 {
+                font-size: 1.8rem;
+            }
+
+            .card {
+                padding: 20px;
+            }
+
+            .upload-area {
+                padding: 25px;
+            }
+        }
+
+        /* Medical themed decorations */
+        .medical-pattern {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            pointer-events: none;
+            opacity: 0.03;
+            background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23000000' fill-opacity='1'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+        }
     </style>
 </head>
 <body>
 
+<div class="medical-pattern"></div>
+
 <div class="container">
-    <h1>Medical Report System</h1>
+    <div class="header">
+        <h1>🏥 Medical Report Assistant</h1>
+        <p>Upload your medical reports and get instant AI-powered answers</p>
+    </div>
 
-    <h2>1. Upload Medical Report (PDF)</h2>
-    <form id="uploadForm">
-        {% csrf_token %}
-        <input type="file" name="file" id="fileInput" accept=".pdf" required>
-        <button type="submit" id="uploadBtn">Upload & Index</button>
-        <div id="uploadStatus" class="status-msg"></div>
-    </form>
-    
-    <h2>2. Ask a Question</h2>
-    <form id="queryForm">
-        {% csrf_token %}
-        <textarea id="questionInput" placeholder="What are the key findings?" required></textarea>
-        <button type="submit" id="queryBtn">Ask AI</button>
-    </form>
+    <div class="main-card">
+        <!-- Upload Section -->
+        <div class="card">
+            <div class="card-header">
+                <div class="card-icon">📄</div>
+                <h2 class="card-title">Upload Medical Report</h2>
+            </div>
+            
+            <div class="upload-area" id="uploadArea">
+                <div class="upload-icon">📎</div>
+                <p class="upload-text">
+                    <strong>Click to upload</strong> or drag and drop<br>
+                    <small>PDF files only (max 10MB)</small>
+                </p>
+                <input type="file" id="fileInput" accept=".pdf" style="display: none;">
+            </div>
+            
+            <div class="file-info" id="fileInfo">
+                <span id="fileName"></span>
+            </div>
 
-    <div id="answerDiv" class="answer">
-        <strong>Answer:</strong>
-        <p id="answerText"></p>
+            <button class="btn btn-primary" id="uploadBtn" style="margin-top: 20px;">
+                <span>📤</span> Upload & Process PDF
+            </button>
+
+            <div class="status" id="uploadStatus"></div>
+        </div>
+
+        <div class="divider"></div>
+
+        <!-- Query Section -->
+        <div class="card">
+            <div class="card-header">
+                <div class="card-icon">💬</div>
+                <h2 class="card-title">Ask Questions</h2>
+            </div>
+
+            <textarea class="query-input" id="questionInput" placeholder="Ask anything about your medical report...&#10;Example: What are my blood test results? Are there any abnormalities?"></textarea>
+
+            <button class="btn btn-primary query-btn" id="queryBtn">
+                <span>🤖</span> Ask AI Assistant
+            </button>
+
+            <div class="status" id="queryStatus"></div>
+        </div>
+
+        <div class="divider"></div>
+
+        <!-- Answer Section -->
+        <div class="card">
+            <div class="card-header">
+                <div class="card-icon">✨</div>
+                <h2 class="card-title">AI Response</h2>
+            </div>
+
+            <div class="answer-container" id="answerContainer">
+                <div class="answer-placeholder">
+                    <p>💡 Your answer will appear here</p>
+                </div>
+            </div>
+
+            <!-- Conversation History -->
+            <div class="history-section" id="historySection" style="display: none;">
+                <p class="history-title">Recent Conversation</p>
+                <div id="historyContent"></div>
+            </div>
+        </div>
     </div>
 </div>
 
 <script>
-    // Helper to get CSRF token
-    const getCSRF = () => document.querySelector('[name=csrfmiddlewaretoken]').value;
+    // Elements
+    const uploadArea = document.getElementById('uploadArea');
+    const fileInput = document.getElementById('fileInput');
+    const fileInfo = document.getElementById('fileInfo');
+    const fileName = document.getElementById('fileName');
+    const uploadBtn = document.getElementById('uploadBtn');
+    const uploadStatus = document.getElementById('uploadStatus');
+    const questionInput = document.getElementById('questionInput');
+    const queryBtn = document.getElementById('queryBtn');
+    const queryStatus = document.getElementById('queryStatus');
+    const answerContainer = document.getElementById('answerContainer');
+    const historySection = document.getElementById('historySection');
+    const historyContent = document.getElementById('historyContent');
 
-    // Handle File Upload
-    document.getElementById('uploadForm').onsubmit = async (e) => {
+    let selectedFile = null;
+
+    // Upload Area Click
+    uploadArea.addEventListener('click', () => fileInput.click());
+
+    // File Selected
+    fileInput.addEventListener('change', (e) => {
+        if (e.target.files.length > 0) {
+            selectedFile = e.target.files[0];
+            fileName.textContent = `✓ ${selectedFile.name} (${(selectedFile.size / 1024 / 1024).toFixed(2)} MB)`;
+            fileInfo.classList.add('show');
+        }
+    });
+
+    // Drag and Drop
+    uploadArea.addEventListener('dragover', (e) => {
         e.preventDefault();
-        const status = document.getElementById('uploadStatus');
-        const btn = document.getElementById('uploadBtn');
-        
-        status.innerText = "Processing PDF... please wait.";
-        btn.disabled = true;
+        uploadArea.classList.add('dragover');
+    });
+
+    uploadArea.addEventListener('dragleave', () => {
+        uploadArea.classList.remove('dragover');
+    });
+
+    uploadArea.addEventListener('drop', (e) => {
+        e.preventDefault();
+        uploadArea.classList.remove('dragover');
+        if (e.dataTransfer.files.length > 0) {
+            selectedFile = e.dataTransfer.files[0];
+            if (selectedFile.type === 'application/pdf') {
+                fileName.textContent = `✓ ${selectedFile.name} (${(selectedFile.size / 1024 / 1024).toFixed(2)} MB)`;
+                fileInfo.classList.add('show');
+            } else {
+                showStatus(uploadStatus, 'Please select a PDF file', 'error');
+            }
+        }
+    });
+
+    // Upload PDF
+    uploadBtn.addEventListener('click', async () => {
+        if (!selectedFile) {
+            showStatus(uploadStatus, 'Please select a PDF file first', 'error');
+            return;
+        }
+
+        uploadBtn.disabled = true;
+        uploadBtn.innerHTML = '<span class="spinner"></span> Processing...';
 
         const formData = new FormData();
-        formData.append('file', document.getElementById('fileInput').files[0]);
+        formData.append('file', selectedFile);
 
         try {
-            const response = await fetch("/api/upload/", {
-                method: "POST",
-                headers: { "X-CSRFToken": getCSRF() },
+            const response = await fetch('/api/upload/', {
+                method: 'POST',
                 body: formData
             });
+
             const data = await response.json();
+
             if (response.ok) {
-                status.style.color = "green";
-                status.innerText = "✅ " + data.message;
+                showStatus(uploadStatus, '✅ PDF uploaded and indexed successfully!', 'success');
+                fileInput.value = '';
+                selectedFile = null;
+                fileInfo.classList.remove('show');
             } else {
-                status.style.color = "red";
-                status.innerText = "❌ Error: " + (data.error || "Upload failed");
+                showStatus(uploadStatus, `❌ ${data.error || 'Upload failed'}`, 'error');
             }
-        } catch (err) {
-            status.innerText = "Server connection error.";
-        } finally {
-            btn.disabled = false;
+        } catch (error) {
+            showStatus(uploadStatus, `❌ Error: ${error.message}`, 'error');
         }
-    };
 
-    // Handle Asking Question
-    document.getElementById('queryForm').onsubmit = async (e) => {
-        e.preventDefault();
-        const btn = document.getElementById('queryBtn');
-        const answerDiv = document.getElementById('answerDiv');
-        const answerText = document.getElementById('answerText');
-        const question = document.getElementById('questionInput').value;
+        uploadBtn.disabled = false;
+        uploadBtn.innerHTML = '<span>📤</span> Upload & Process PDF';
+    });
 
-        btn.disabled = true;
-        btn.innerText = "Searching document...";
+    // Ask Question
+    queryBtn.addEventListener('click', async () => {
+        const question = questionInput.value.trim();
+        
+        if (!question) {
+            showStatus(queryStatus, 'Please enter a question', 'error');
+            return;
+        }
+
+        queryBtn.disabled = true;
+        queryBtn.innerHTML = '<span class="spinner"></span> Analyzing...';
+        
+        showStatus(queryStatus, '🤔 Searching for answer...', 'success');
 
         try {
-            const response = await fetch("/api/query/", {
-                method: "POST",
+            const response = await fetch('/api/query/', {
+                method: 'POST',
                 headers: {
-                    "Content-Type": "application/json",
-                    "X-CSRFToken": getCSRF()
+                    'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({ "question": question })
+                body: JSON.stringify({ question: question })
             });
+
             const data = await response.json();
-            
-            answerDiv.style.display = "block";
-            answerText.innerText = data.answer || data.error || "Unknown error occurred.";
-        } catch (err) {
-            alert("Connection error occurred.");
-        } finally {
-            btn.disabled = false;
-            btn.innerText = "Ask AI";
+
+            if (response.ok) {
+                // Show answer
+                answerContainer.innerHTML = `
+                    <div class="answer-content">
+                        ${data.answer}
+                    </div>
+                `;
+                
+                // Show conversation history
+                if (data.history && data.history.length > 0) {
+                    historySection.style.display = 'block';
+                    historyContent.innerHTML = data.history.map(msg => `
+                        <div class="history-item ${msg.role === 'user' ? 'history-user' : 'history-ai'}">
+                            <strong>${msg.role === 'user' ? 'You' : 'AI'}:</strong> ${msg.content.substring(0, 100)}${msg.content.length > 100 ? '...' : ''}
+                        </div>
+                    `).join('');
+                }
+                
+                questionInput.value = '';
+                queryStatus.style.display = 'none';
+            } else {
+                showStatus(queryStatus, `❌ ${data.error || 'Query failed'}`, 'error');
+            }
+        } catch (error) {
+            showStatus(queryStatus, `❌ Error: ${error.message}`, 'error');
         }
-    };
+
+        queryBtn.disabled = false;
+        queryBtn.innerHTML = '<span>🤖</span> Ask AI Assistant';
+    });
+
+    // Helper: Show Status
+    function showStatus(element, message, type) {
+        element.textContent = message;
+        element.className = `status show status-${type}`;
+    }
+
+    // Enter key to submit question
+    questionInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && e.ctrlKey) {
+            queryBtn.click();
+        }
+    });
 </script>
+
 </body>
 </html>
