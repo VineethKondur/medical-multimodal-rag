@@ -128,3 +128,10 @@ REST_FRAMEWORK = {
         "rest_framework.parsers.FormParser",
     ]
 }
+
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "medical-cache",
+    }
+}

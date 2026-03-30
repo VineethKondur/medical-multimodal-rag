@@ -1,16 +1,18 @@
 import os
 from langchain_community.vectorstores import FAISS
 from .embeddings import get_embedding_model
+from django.conf import settings
 
-INDEX_PATH = "faiss_index"
+# Use BASE_DIR to ensure index is in the backend directory
+INDEX_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "faiss_index")
 
 _cached_vectorstore = None
 
 def create_vectorstore(docs):
     global _cached_vectorstore
     embeddings = get_embedding_model()
-    os.makedirs(INDEX_PATH,exist_ok=True)
-    vectorstore = FAISS.from_documents(docs,embeddings)
+    os.makedirs(INDEX_PATH, exist_ok=True)
+    vectorstore = FAISS.from_documents(docs, embeddings)
     vectorstore.save_local(INDEX_PATH)
     _cached_vectorstore = vectorstore
     return vectorstore
@@ -18,7 +20,7 @@ def create_vectorstore(docs):
 def load_vectorstore():
     global _cached_vectorstore
     if not os.path.exists(INDEX_PATH):
-        raise FileNotFoundError("FAISS index not found")
+        raise FileNotFoundError(f"FAISS index not found at {INDEX_PATH}")
     if _cached_vectorstore:
         return _cached_vectorstore
     embeddings = get_embedding_model()

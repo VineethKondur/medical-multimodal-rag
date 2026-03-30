@@ -3,26 +3,62 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
+*.egg-info/
+dist/
+build/
+*.egg
 
 # Virtual environments (anywhere)
 venv/
 */venv/
+env/
+ENV/
 
 # Env files
 .env
+.env.local
+.env.*.local
 *.env
 
 # Django
 db.sqlite3
 media/
+*/media/
 staticfiles/
+static/
 
 # VS Code
 .vscode/
+*.code-workspace
+
+# IDE
+.idea/
+.project
+.pydevproject
+*.swp
+*.swo
+*~
 
 # FAISS index
 faiss_index/
 */faiss_index/
+*.faiss
 
 # OS
 .DS_Store
+Thumbs.db
+
+# Tests
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.bak
+*~
+.*.swp

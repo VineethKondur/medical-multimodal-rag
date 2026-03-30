@@ -496,74 +496,167 @@
         uploadBtn.innerHTML = '<span>📤</span> Upload & Process PDF';
     });
 
-    // Ask Question
-    queryBtn.addEventListener('click', async () => {
-        const question = questionInput.value.trim();
-        
-        if (!question) {
-            showStatus(queryStatus, 'Please enter a question', 'error');
-            return;
-        }
+    // Helper: escape HTML (MOVED OUTSIDE - FIXED)
+function escapeHTML(str) {
+    return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+}
 
-        queryBtn.disabled = true;
-        queryBtn.innerHTML = '<span class="spinner"></span> Analyzing...';
-        
-        showStatus(queryStatus, '🤔 Searching for answer...', 'success');
-
-        try {
-            const response = await fetch('/api/query/', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ question: question })
-            });
-
-            const data = await response.json();
-
-            if (response.ok) {
-                // Show answer
-                answerContainer.innerHTML = `
-                    <div class="answer-content">
-                        ${data.answer}
-                    </div>
-                `;
-                
-                // Show conversation history
-                if (data.history && data.history.length > 0) {
-                    historySection.style.display = 'block';
-                    historyContent.innerHTML = data.history.map(msg => `
-                        <div class="history-item ${msg.role === 'user' ? 'history-user' : 'history-ai'}">
-                            <strong>${msg.role === 'user' ? 'You' : 'AI'}:</strong> ${msg.content.substring(0, 100)}${msg.content.length > 100 ? '...' : ''}
-                        </div>
-                    `).join('');
-                }
-                
-                questionInput.value = '';
-                queryStatus.style.display = 'none';
-            } else {
-                showStatus(queryStatus, `❌ ${data.error || 'Query failed'}`, 'error');
-            }
-        } catch (error) {
-            showStatus(queryStatus, `❌ Error: ${error.message}`, 'error');
-        }
-
-        queryBtn.disabled = false;
-        queryBtn.innerHTML = '<span>🤖</span> Ask AI Assistant';
-    });
-
-    // Helper: Show Status
-    function showStatus(element, message, type) {
-        element.textContent = message;
-        element.className = `status show status-${type}`;
+// Ask Question
+queryBtn.addEventListener('click', async () => {
+    const question = questionInput.value.trim();
+    
+    if (!question) {
+        showStatus(queryStatus, 'Please enter a question', 'error');
+        return;
     }
 
-    // Enter key to submit question
-    questionInput.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' && e.ctrlKey) {
-            queryBtn.click();
+    queryBtn.disabled = true;
+    queryBtn.innerHTML = '<span class="spinner"></span> Analyzing...';
+    
+    showStatus(queryStatus, '🤔 Searching for answer...', 'success');
+
+    try {
+        const response = await fetch('/api/query/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ question: question })
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+
+            // Show answer
+            if (data.type === "table") {
+                let tableHtml = '';
+
+                if (data.data && data.data.length > 0) {
+                    tableHtml = `
+                        <div style="overflow-x:auto;">
+                            <table style="
+                                width:100%;
+                                border-collapse: collapse;
+                                margin-top: 10px;
+                                font-size: 0.95rem;
+                            ">
+                                <thead style="background: #f5f7fa; font-weight: 600;">
+                                    <tr>
+                                        <th style="padding: 12px; border: 1px solid #ddd;">Test Name</th>
+                                        <th style="padding: 12px; border: 1px solid #ddd;">Value</th>
+                                        <th style="padding: 12px; border: 1px solid #ddd;">Unit</th>
+                                        <th style="padding: 12px; border: 1px solid #ddd;">Reference Range</th>
+                                        <th style="padding: 12px; border: 1px solid #ddd; text-align: center;">Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                    `;
+
+                    data.data.forEach(row => {
+                        // Determine status color
+                        let statusColor = "#666"; // default gray
+                        let statusBg = "#f0f0f0";
+                        
+                        if (row.status === "HIGH") {
+                            statusColor = "#d32f2f";
+                            statusBg = "#ffebee";
+                        } else if (row.status === "LOW") {
+                            statusColor = "#f57c00";
+                            statusBg = "#fff3e0";
+                        } else if (row.status === "NORMAL") {
+                            statusColor = "#388e3c";
+                            statusBg = "#e8f5e9";
+                        }
+                        
+                        tableHtml += `
+                            <tr>
+                                <td style="padding: 10px; border: 1px solid #ddd;">
+                                    ${escapeHTML(row.test || '')}
+                                </td>
+                                <td style="padding: 10px; border: 1px solid #ddd; font-weight: 500;">
+                                    ${escapeHTML(row.value || '')}
+                                </td>
+                                <td style="padding: 10px; border: 1px solid #ddd;">
+                                    ${escapeHTML(row.unit || '')}
+                                </td>
+                                <td style="padding: 10px; border: 1px solid #ddd;">
+                                    ${escapeHTML(row.range || '')}
+                                </td>
+                                <td style="padding: 10px; border: 1px solid #ddd; text-align: center; background: ${statusBg}; color: ${statusColor}; font-weight: 600;">
+                                    ${escapeHTML(row.status || 'UNKNOWN')}
+                                </td>
+                            </tr>
+                        `;
+                    });
+
+                    tableHtml += `
+                                </tbody>
+                            </table>
+                        </div>
+                    `;
+                } else {
+                    tableHtml = `
+                        <div class="answer-placeholder">
+                            <p>No table data found for your query.</p>
+                        </div>
+                    `;
+                }
+
+                answerContainer.innerHTML = `
+                    <div class="answer-content">
+                        ${tableHtml}
+                    </div>
+                `;
+
+            } else {
+                answerContainer.innerHTML = `
+                    <div class="answer-content">
+                        ${escapeHTML(data.answer)}
+                    </div>
+                `;
+            }
+            
+            // Show conversation history
+            if (data.history && data.history.length > 0) {
+                historySection.style.display = 'block';
+                historyContent.innerHTML = data.history.map(msg => `
+                    <div class="history-item ${msg.role === 'user' ? 'history-user' : 'history-ai'}">
+                        <strong>${msg.role === 'user' ? 'You' : 'AI'}:</strong> ${msg.content.substring(0, 100)}${msg.content.length > 100 ? '...' : ''}
+                    </div>
+                `).join('');
+            }
+            
+            questionInput.value = '';
+            queryStatus.style.display = 'none';
+
+        } else {
+            showStatus(queryStatus, `❌ ${data.error || 'Query failed'}`, 'error');
         }
-    });
+
+    } catch (error) {
+        showStatus(queryStatus, `❌ Error: ${error.message}`, 'error');
+    }
+
+    queryBtn.disabled = false;
+    queryBtn.innerHTML = '<span>🤖</span> Ask AI Assistant';
+});
+
+// Helper: Show Status
+function showStatus(element, message, type) {
+    element.textContent = message;
+    element.className = `status show status-${type}`;
+}
+
+// Enter key to submit question
+questionInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && e.ctrlKey) {
+        queryBtn.click();
+    }
+});
 </script>
 
 </body>
