@@ -3,7 +3,13 @@
 import os
 import sys
 import warnings
+
+# 🔥 SUPPRESS ALL DEPRECATION WARNINGS AND ARC4 WARNINGS
 warnings.filterwarnings("ignore", category=DeprecationWarning)
+warnings.filterwarnings("ignore", category=UserWarning)
+warnings.filterwarnings("ignore", message="ARC4 has been moved")
+warnings.filterwarnings("ignore", module="cryptography")
+warnings.filterwarnings("ignore", module="pypdf")
 
 def main():
     """Run administrative tasks."""

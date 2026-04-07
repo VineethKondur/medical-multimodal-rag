@@ -1,102 +1,102 @@
-import logging
-from functools import lru_cache
-from typing import List
-
-import cv2
+import warnings
 import fitz  # PyMuPDF
+import easyocr
 import numpy as np
+import cv2
+import os
 
-logger = logging.getLogger(__name__)
+# 🔥 SUPPRESS DEPRECATION WARNINGS
+warnings.filterwarnings('ignore', category=DeprecationWarning)
+warnings.filterwarnings('ignore', message='ARC4 has been moved')
 
-
-@lru_cache(maxsize=1)
-def _get_ocr_reader():
-    """Get cached EasyOCR reader instance."""
+# Initialize the OCR reader once to avoid reloading the model on every call.
+# This is a heavy object.
+print("Initializing EasyOCR Reader...")
+try:
+    # 🔥 GPU ENABLED - Set to True for CUDA support. Falls back to CPU if GPU unavailable.
+    reader = easyocr.Reader(['en'], gpu=True, verbose=False) 
+    print("✓ EasyOCR Reader initialized successfully (GPU enabled).")
+except Exception as e:
+    reader = None
+    print(f"⚠️  GPU initialization failed or CUDA not available. Falling back to CPU...")
+    print(f"   Error: {e}")
     try:
-        import easyocr
-        return easyocr.Reader(['en'], gpu=False, verbose=False)
-    except Exception as e:
-        logger.error(f"Failed to initialize EasyOCR reader: {e}")
-        raise
-
-
-def _preprocess_image(image: np.ndarray) -> np.ndarray:
-    """Convert image to grayscale for better OCR results."""
-    if len(image.shape) == 3:
-        return cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
-    return image
-
-
-def _pdf_page_to_image(pdf_document, page_num: int) -> np.ndarray:
-    """Convert a PDF page to a numpy image array."""
-    page = pdf_document[page_num]
-    mat = fitz.Matrix(2, 2)  # 2x zoom for better OCR quality
-    pix = page.get_pixmap(matrix=mat)
-    img_data = pix.tobytes("png")
-    
-    # Convert to numpy array
-    nparr = np.frombuffer(img_data, np.uint8)
-    image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-    
-    # Convert BGR to RGB
-    return cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        # Fallback to CPU if GPU fails
+        reader = easyocr.Reader(['en'], gpu=False, verbose=False)
+        print("✓ EasyOCR Reader initialized successfully (CPU mode).")
+    except Exception as cpu_error:
+        print(f"CRITICAL: Failed to initialize EasyOCR Reader: {cpu_error}")
+        print("OCR functionality will be disabled. Please ensure you have installed PyTorch and EasyOCR correctly.")
 
 
 def extract_text_with_ocr(file_path: str) -> str:
     """
-    Extract text from a PDF using OCR (EasyOCR).
-    
-    This function is used as a fallback when normal text extraction fails.
-    It converts each PDF page to an image and runs OCR on it.
-    
-    Args:
-        file_path: Path to the PDF file
-        
-    Returns:
-        Extracted text from all pages
+    Extracts text from a PDF using OCR. It converts each page to an image
+    and runs OCR on it.
     """
-    logger.info(f"Starting OCR for PDF: {file_path}")
+    if not reader:
+        print("OCR is not available because the reader failed to initialize.")
+        return ""
+
+    print(f"--- Starting OCR process for file: {os.path.basename(file_path)} ---")
     
     try:
-        reader = _get_ocr_reader()
+        doc = fitz.open(file_path)
     except Exception as e:
-        logger.error(f"Cannot initialize OCR reader: {e}")
+        print(f"Error: Could not open PDF file '{file_path}' with PyMuPDF. Details: {e}")
         return ""
+
+    full_text = []
+    for page_num, page in enumerate(doc):
+        print(f"  - Processing page {page_num + 1}/{len(doc)}")
+        try:
+            pix = page.get_pixmap(dpi=300)  # Higher DPI improves OCR accuracy
+            img_bytes = pix.tobytes("png")
+            img_np = np.frombuffer(img_bytes, np.uint8)
+            img = cv2.imdecode(img_np, cv2.IMREAD_COLOR)
+
+            result = reader.readtext(img, detail=0) # Removed paragraph=True
+            page_text = "\n".join(result)
+            full_text.append(page_text)
+        except Exception as e:
+            print(f"    - Error processing page {page_num + 1} with OCR: {e}")
+            continue
     
-    text_parts: List[str] = []
-    
+    doc.close()
+    final_text = "\n\n".join(full_text)
+    print(f"--- OCR Finished. Total characters extracted: {len(final_text)} ---")
+    return final_text
+
+def extract_bboxes_with_ocr(file_path: str) -> list:
+    """
+    Extracts text with X/Y bounding box coordinates.
+    Returns: list of tuples: ( [x_min, y_min, x_max, y_max], text, confidence )
+    """
+    if not reader:
+        return []
+
+    print(f"--- Starting Bbox OCR for table extraction: {os.path.basename(file_path)} ---")
     try:
-        with fitz.open(file_path) as pdf:
-            num_pages = len(pdf)
-            logger.info(f"Processing {num_pages} pages with OCR")
-            
-            for page_num in range(num_pages):
-                try:
-                    # Convert page to image
-                    image = _pdf_page_to_image(pdf, page_num)
-                    
-                    # Preprocess: convert to grayscale
-                    gray_image = _preprocess_image(image)
-                    
-                    # Run OCR
-                    results = reader.readtext(gray_image)
-                    
-                    # Extract text from results
-                    page_text = " ".join([result[1] for result in results])
-                    
-                    if page_text.strip():
-                        text_parts.append(page_text)
-                        logger.debug(f"Page {page_num + 1}: extracted {len(page_text)} characters")
-                    
-                except Exception as e:
-                    logger.warning(f"OCR failed on page {page_num + 1}: {e}")
-                    continue
-        
-        combined_text = " ".join(text_parts)
-        logger.info(f"OCR completed: extracted {len(combined_text)} characters")
-        
-        return combined_text
-        
+        doc = fitz.open(file_path)
     except Exception as e:
-        logger.error(f"OCR processing failed: {e}")
-        return ""
+        return []
+
+    all_bboxes = []
+    for page_num, page in enumerate(doc):
+        print(f"  - Processing page {page_num + 1}/{len(doc)}")
+        try:
+            pix = page.get_pixmap(dpi=300)
+            img_bytes = pix.tobytes("png")
+            img_np = np.frombuffer(img_bytes, np.uint8)
+            img = cv2.imdecode(img_np, cv2.IMREAD_COLOR)
+
+            # detail=1 returns coordinates!
+            result = reader.readtext(img, detail=1, paragraph=False)
+            all_bboxes.extend(result)
+        except Exception as e:
+            print(f"    - Error processing page {page_num + 1}: {e}")
+            continue
+    
+    doc.close()
+    print(f"--- Bbox OCR Finished. Total segments: {len(all_bboxes)} ---")
+    return all_bboxes
