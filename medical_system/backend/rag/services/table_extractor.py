@@ -23,12 +23,12 @@ NARRATIVE_PATTERNS = [
     r'\b(should|must|may|can)\s+be\b', r'\b(please|kindly|advised)\b',
     r'\b(recommend|suggest)\b', r'\bassociated\s+with\b',
     r'\bin\s+case\s+of\b', r'\bas\s+per\b', r'\bcomprises?\b',
-    r'\bis\s+used\s+to\b', r'\bclinical\s+significance\b',
+    r'\bis\s*used\s+to\b', r'\bclinical\s+significance\b',
     r'\bthis\s+(test|is|should)\b',
 ]
 
 METADATA_PATTERNS = [
-    r'^sample\s*:', r'^method\s*:', r'patient\s*(id|name)', r'billing\s*date',
+    r'^sample\s*:', r'^method\s:*', r'patient\s*(id|name)', r'billing\s*date',
     r'sample\s*(collected|received)', r'report\s*(released|status|date)',
     r'referring\s*doctor', r'accession\s*no', r'p\.\s*id', r'processed\s*by',
     r'end\s+of\s+report', r'pvt\.?\s*ltd', r'diagnostics', r'consultant',
@@ -55,7 +55,7 @@ BLOCKED_TESTS = {
     "fully", "computerised", "pathological", "laboratory",
     "complete blood count", "absolute counts", "differential count",
     "unknown", "test", "value", "unit", "range", "status", "result",
-    "test result",  # Add this!
+    "test result",
     "differential leucocyte count", "dlc", "absolute count",
 }
 
@@ -153,7 +153,7 @@ def is_valid_in_text_context(test_name, value, unit="", ref_range=""):
     test = str(test_name).strip()
     value_str = str(value).strip()
 
-    if not is_valid_in_table_context(test, value, unit, ref_range): return False
+    if not is_valid_in_table_context(test_name, value, unit, ref_range): return False
 
     has_number = bool(re.search(r'\d', value_str))
     if has_number:
@@ -185,7 +185,7 @@ def is_valid_in_ocr_context(test_name, value, unit="", ref_range=""):
     if test.lower().strip() in BLOCKED_TESTS:
         return False
 
-    if not is_valid_in_text_context(test, value, unit, ref_range):
+    if not is_valid_in_text_context(test_name, value, unit, ref_range):
         if re.search(r'\d', value_str) and len(test) >= 3:
             if re.search(r'[a-zA-Z]{2,}', test):
                 if not is_metadata_text(test) and not is_narrative_text(test):
@@ -310,12 +310,12 @@ def is_unit(word):
 
 
 # ============================================================================
-# 🔥🔥🔥 FIXED: MULTI-LINE SMART PARSER v3.0 🔥🔥🔥
+# 🔥🔥🔥 MULTI-LINE SMART PARSER v3.0 🔥🔥🔥
 # ============================================================================
 
 def smart_parse_ocr_results(ocr_results):
     """
-    FIXED VERSION: Properly handles multi-line test entries.
+    Properly handles multi-line test entries.
     
     CRITICAL FIX: Track consumed rows correctly to avoid value shifting!
     """
@@ -578,7 +578,7 @@ def merge_test_name_with_value(classified_rows, start_idx):
                 prev_row['_consumed'] = True
                 
                 # ════════════════════════════════════════════════
-                # 🆕 STEP 2: Scan ALL previous rows (up to 4 back)
+                # STEP 2: Scan ALL previous rows (up to 4 back)
                 #        Ignore type - just look for patterns!
                 # ════════════════════════════════════════════════
                 
@@ -603,8 +603,8 @@ def merge_test_name_with_value(classified_rows, start_idx):
                         if range_match and not result['range']:
                             candidate_range = range_match.group(0)
                             
-                                    # Validate: range should make sense for context
-                                    # (not too short, not a year, etc.)
+                            # Validate: range should make sense for context
+                            # (not too short, not a year, etc.)
                             range_parts = re.split(r'[-–—]', candidate_range)
                             if len(range_parts) == 2:
                                 try:
@@ -803,6 +803,117 @@ def get_headers(df):
     if len(df) > 0: return df.iloc[0], 0, False
     return None, 0, False
 
+# ============================================================================
+# 🔥🔥🔥 NEW: ECG/Qualitative Table Detection 🔥🔥🔥
+# ============================================================================
+
+ECG_QUALITATIVE_TABLE_INDICATORS = {
+    'ecg quality', 'physiologist', 'morphology', 'rhythm present',
+    'other rhythm', 'atrial ectopics', 'ventricular ectopics',
+    'av conduction', 'p-wave morphology', 'qrs morphology', 
+    't-wave morphology', 'st segment', 'q-wave',
+    'cardiac axis', 'sinus rhythm', 'atrial pause'
+}
+
+def is_ecg_qualitative_table(headers):
+    """
+    Detect tables that contain qualitative ECG assessments (NOT numeric lab values).
+    
+    🔥 FIXED v4.2: Added exception for known lab report sections.
+    """
+    if not headers:
+        return False
+    
+    header_text = ' '.join(str(h).lower() for h in headers)
+    
+    # 🔥 NEW: If this looks like a LAB REPORT section, NEVER skip it!
+    lab_report_indicators = [
+        'hemoglobin', 'rbc', 'wbc', 'platelet', 'cbc', 'blood count',
+        'differential', 'neutrophil', 'lymphocyte', 'eosinophil', 'monocyte',
+        'basophil', 'pcv', 'hematocrit', 'mcv', 'mch', 'mchc', 'rdw',
+        'glucose', 'creatinine', 'urea', 'bilirubin', 'protein',
+        'sodium', 'potassium', 'chloride', 'lipid', 'cholesterol'
+    ]
+    
+    lab_indicator_count = sum(1 for ind in lab_report_indicators if ind in header_text)
+    
+    # If it contains lab test names, it's a DATA table, not qualitative!
+    if lab_indicator_count >= 1:
+        return False  # ✅ Don't skip - this is real lab data!
+    
+    # Original ECG check (only applies if no lab indicators found)
+    ecg_indicator_count = sum(1 for indicator in ECG_QUALITATIVE_TABLE_INDICATORS 
+                         if indicator in header_text)
+    
+    return ecg_indicator_count >= 2
+
+
+def table_contains_qualitative_values(df, start_idx=1):
+    """
+    Check if table values are mostly text (qualitative) rather than numbers.
+    
+    🔥 FIXED v4.2: More lenient - allows lab report tables with mixed content.
+    Only skips truly non-data tables (like ECG narrative findings).
+    
+    Returns:
+        bool: True if >85% of values are non-numeric text (raised threshold from 70%)
+    """
+    total_cells = 0
+    text_cells = 0
+    numeric_cells = 0
+    
+    # Check first 15 data rows (increased from 10)
+    for i in range(start_idx, min(start_idx + 15, len(df))):
+        row = df.iloc[i]
+        for val in row:
+            val_str = str(val).strip()
+            
+            # Skip empty/NaN cells entirely
+            if not val_str or val_str.lower() in ['nan', '', 'none', 'na', 'n/a']:
+                continue
+                
+            total_cells += 1
+            
+            # Check if value is purely numeric (including integers, decimals, scientific notation)
+            if re.match(r'^[\d.,eE+-]+$', val_str):
+                try:
+                    float(val_str.replace(',', ''))
+                    numeric_cells += 1
+                    continue
+                except ValueError:
+                    pass
+            
+            # Known LAB VALUES that should NOT be treated as qualitative:
+            lab_friendly_values = [
+                'normal', 'abnormal', 'borderline', 'low', 'high',
+                'positive', 'negative', 'reactive', 'non-reactive',
+                'detected', 'not detected', 'present', 'absent',
+                'none', 'no', 'yes', 'trace', 'small', 'moderate',
+                '1+', '2+', '3+', '4+',  # Grading scales
+                'normal', 'prolonged', 'within normal limits'
+            ]
+            
+            if val_str.lower() in lab_friendly_values:
+                # These are common in lab reports - don't penalize heavily
+                text_cells += 0.3  # Weighted less than pure text
+            else:
+                # Pure narrative text (like ECG findings)
+                if not re.search(r'\d', val_str):
+                    text_cells += 1
+    
+    if total_cells == 0:
+        return False
+    
+    text_ratio = text_cells / total_cells
+    numeric_ratio = numeric_cells / total_cells
+    
+    # 🔥 NEW: If we have ANY significant numeric content (>20%), don't skip!
+    # Lab reports often have mixed tables (some numeric, some categorical)
+    if numeric_ratio >= 0.20:
+        return False
+    
+    # Only skip if TRULY text-heavy (>85% raised from 70%)
+    return text_ratio > 0.85
 
 def format_table(df, context="table"):
     rows = []
@@ -810,7 +921,15 @@ def format_table(df, context="table"):
         headers, start_idx, has_headers = get_headers(df)
         if headers is None: return []
         headers = [str(h).lower().strip() for h in headers]
-
+        # 🔥🔥🔥 NEW: Skip ECG qualitative tables entirely! 🔥🔥🔥
+        if is_ecg_qualitative_table(headers):
+            print(f"      ⏭️ Skipping ECG qualitative table (headers: {headers[:2]}...)")
+            return []
+        
+        # Also check if data rows are mostly qualitative
+        if table_contains_qualitative_values(df, start_idx):
+            print("      ⏭️ Skipping qualitative table (>70% text values)")
+            return []
         test_idx = value_idx = unit_idx = range_idx = status_idx = None
         for i, h in enumerate(headers):
             h_lower = h.lower()
@@ -998,7 +1117,40 @@ def extract_text_based_tests(file_path: str, is_ocr=False) -> list:
         if not line or len(line) < 5 or is_metadata_text(line): continue
         if re.match(r'^(Sample|Method)\s*:', line, re.IGNORECASE): continue
         if len(line) > 120: continue
-
+        
+        # 🔥🔥🔥 NEW: Skip ECG narrative lines 🔥🔥🔥
+        line_lower = line.lower()
+        
+        # Skip lines that look like ECG findings (not numeric lab tests)
+        ecg_narrative_patterns = [
+            r'^ecg quality:', r'^ventricular rate:\s*(normal|bradycardia|tachycardia)',
+            r'^pr interval:\s*(normal|prolonged)', r'^qrs duration:\s*(normal|wide)',
+            r'^qt.*interval:\s*(normal|prolonged)', r'^cardiac axis:\s*(normal)',
+            r'^sinus rhythm', r'^other rhythm:', r'^atrial pause',
+            r'^av conduction:', r'.*morphology:', r'^st segment:',
+            r'^p-wave', r'^t-wave', r'^q-wave', r'.*ectopics:',
+            r'exhibits\s+a\s+cardiac', r'the\s+total\s+time\staken',
+            r'the\s+qt.*interval\s+indicates', r'regular\s+p-waves',
+            r'is\s+sinus\s+rhythm', r'no\s+displacement'
+        ]
+        
+        is_ecg_narrative = any(re.search(p, line_lower) for p in ecg_narrative_patterns)
+        if is_ecg_narrative:
+            continue  # Skip this line - it's ECG narrative, not a lab test
+        
+        # Skip lines where value is clearly non-numeric text (and not serological)
+        parts = re.split(r'\s{2,}|\t', line)
+        if len(parts) >= 2:
+            potential_value = parts[-1] if ':' not in parts[-2] else parts[-1]
+            
+            text_only_values = ['normal', 'abnormal', 'none', 'no', 'yes', 'not observed',
+                            'present', 'absent', 'prolonged', 'within normal limits']
+            if potential_value.lower().strip() in text_only_values:
+                test_name_candidate = ' '.join(parts[:-1]).lower()
+                is_sero_or_urine = any(kw in test_name_candidate for kw in 
+                                    ['test', 'screen', 'pregnancy', 'hiv', 'urine'])
+                if not is_sero_or_urine:
+                    continue
         parts = re.split(r'\s{2,}|\t', line)
         if len(parts) == 1: parts = line.split()
         if len(parts) >= 2:
@@ -1055,14 +1207,70 @@ def detect_if_scanned(file_path: str) -> bool:
 
 
 # ============================================================================
-# 🔥 MAIN EXTRACTION FUNCTION
+# 🔥🔥🔥 MAIN EXTRACTION FUNCTION - FIXED v4.1 🔥🔥🔥
 # ============================================================================
 
-def extract_tables(file_path: str) -> str:
+def extract_tables(file_path: str) -> list:
+    """
+    ✅✅✅ FIXED v4.1: Returns LIST (not string!)
+    NEW: Skips extraction for non-lab documents (ECG, X-ray, etc.)
+    
+    Args:
+        file_path: Path to PDF file
+        
+    Returns:
+        list: List of dicts with keys: test, value, unit, range, flag
+              Returns empty list [] for non-lab documents or on failure
+    """
     all_table_rows, extractor_stats, is_scanned = [], {}, False
+    
     try:
         is_scanned = detect_if_scanned(file_path)
         print(f"📄 Detected: {'SCANNED PDF (SMART parser v3.0)' if is_scanned else 'DIGITAL PDF'}")
+
+        # ================================================================
+        # 🔥🔥🔥 NEW: Document Type Detection & Early Exit 🔥🔥🔥
+        # ================================================================
+        doc_type = _detect_document_type(file_path)
+        print(f"📋 Document type: {doc_type.upper()}")
+        
+        # Smart handling based on document type
+        if doc_type == 'ecg_report':
+            print(f"\n{'='*60}")
+            print(f"⏭️  SKIPPING TABLE EXTRACTION (ECG Document)")
+            print(f"{'='*60}")
+            print(f"   Reason: This is an ECG report - graph analyzer will handle it")
+            print(f"   Result: Returning empty list (ECG data extracted separately)")
+            print(f"{'='*60}\n")
+            return []  # ECG reports don't have lab tables
+            
+        elif doc_type == 'radiology_image':
+            print(f"\n{'='*60}")
+            print(f"⏭️  SKIPPING TABLE EXTRACTION (Radiology Image)")
+            print(f"{'='*60}")
+            print(f"   Reason: This is a radiology image (X-ray, CT, MRI)")
+            print(f"   Result: Returning empty list (no tabular data)")
+            print(f"{'='*60}\n")
+            return []  # X-rays/CTs don't have lab tables
+            
+        elif doc_type == 'scanned_image':
+            # ✅ NEW: Don't skip! Try OCR-based extraction for scanned lab reports
+            print(f"\n{'='*60}")
+            print(f"📄 SCANNED DOCUMENT DETECTED - Attempting OCR Table Extraction")
+            print(f"{'='*60}")
+            print(f"   Reason: This appears to be a scanned document (possibly a lab report)")
+            print(f"   Action: Will attempt OCR → Structured table parsing")
+            print(f"{'='*60}\n")
+            
+            # Don't return early - let the function continue to try OCR parsing
+            # The extract_text_based_tests() function below will handle OCR
+            pass
+        
+        else:
+            print(f"   ✓ Proceeding with table extraction (document type: {doc_type})\n")
+        
+        # Only proceed with extraction for lab reports or unknown docs
+        print(f"   ✓ Proceeding with table extraction...\n")
 
         camelot_rows = [] if is_scanned else extract_with_camelot(file_path)
         pdfplumber_rows = [] if is_scanned else extract_with_pdfplumber(file_path)
@@ -1098,10 +1306,11 @@ def extract_tables(file_path: str) -> str:
         print(f"⚠️ Table extraction failed: {e}")
         import traceback
         traceback.print_exc()
-        return ""
+        return []
     finally:
         gc.collect()
 
+    # Print summary
     print(f"\n{'=' * 60}\n📊 EXTRACTION SUMMARY ({'SCANNED' if is_scanned else 'DIGITAL'})\n{'=' * 60}")
     if not is_scanned:
         print(f"   Camelot:     {extractor_stats.get('camelot', 0)} rows")
@@ -1121,26 +1330,124 @@ def extract_tables(file_path: str) -> str:
 
     if not all_table_rows:
         print("⚠️ No valid lab data extracted")
-        return ""
-    try:
-        return json.dumps(all_table_rows)
-    except Exception as e:
-        print(f"⚠️ JSON serialization failed: {e}")
-        return ""
+        return []
 
+    # ✅ Return list directly (NOT json.dumps!)
+    return all_table_rows
+
+# ============================================================================
+# 🔥 NEW: Document Type Detection (Fixes ECG garbage extraction)
+# ============================================================================
+
+def _detect_document_type(file_path: str) -> str:
+    """
+    Detect if PDF is a lab report, ECG, radiology image, etc.
+    Returns: 'lab_report', 'ecg_report', 'radiology_image', 'scanned_image', 'unknown'
+    """
+    import fitz
+    
+    try:
+        doc = fitz.open(file_path)
+        
+        full_text = ""
+        page_texts = []
+        for i in range(min(3, len(doc))):
+            page_text = doc[i].get_text()
+            page_texts.append(page_text)
+            full_text += page_text + "\n"
+        
+        doc.close()
+        
+        text_lower = full_text.lower()
+        
+        # ===== ECG INDICATORS (HIGH CONFIDENCE) =====
+        ecg_indicators = [
+            '12-lead ecg', '12 lead ecg', 'ecg report', 'electrocardiogram',
+            'physiologist\'s report', 'ecg quality', 'ecg on demand',
+            'ventricular rate', 'pr interval', 'qrs duration',
+            'qt interval', 'qtc interval', 'p-wave morphology',
+            'st segment', 'cardiac axis', 'sinus rhythm present',
+            'p wave morphology', 'qrs morphology', 't-wave morphology',
+            'atrial ectopics', 'ventricular ectopics', 'av conduction',
+            'technomed', 'ecg on-demand',
+        ]
+        
+        ecg_count = sum(1 for ind in ecg_indicators if ind in text_lower)
+        
+        # Also check page titles/headers
+        if any('ecg' in pt.lower() for pt in page_texts[:2]):
+            ecg_count += 3  # Boost score significantly
+        
+        if ecg_count >= 3:
+            return 'ecg_report'
+        
+        # ===== RADIOLOGY/IMAGING INDICATORS =====
+        radiology_indicators = [
+            'x-ray', 'xray', 'radiograph', 'ct scan', 'mri', 'magnetic resonance',
+            'ultrasound', 'sonography', 'chest x-ray', 'cxr', 'radiology report',
+            'imaging study', 'radiologist', 'dicom', 'view series',
+            'axial', 'coronal', 'sagittal',
+        ]
+        
+        rad_count = sum(1 for ind in radiology_indicators if ind in text_lower)
+        
+        if rad_count >= 2:
+            return 'radiology_image'
+        
+        # ===== LAB REPORT INDICATORS =====
+        lab_indicators = [
+            'complete blood count', 'cbc', 'hemoglobin', 'haemoglobin', 'haematocrit',
+            'hematocrit', 'wbc count', 'white blood cell', 'rbc count', 'red blood cell',
+            'platelet count', 'platelets', 'blood glucose', 'fasting glucose', 'hba1c',
+            'liver function test', 'lft', 'kidney function', 'renal function',
+            'lipid profile', 'cholesterol', 'thyroid function', 'tsh', 't4', 't3',
+            'urinalysis', 'metabolic panel', 'bmp', 'cmp',
+            'reference range', 'normal range', 'abnormal', 'biochemistry',
+            'hematology', 'serology', 'immunology',
+        ]
+        
+        lab_count = sum(1 for ind in lab_indicators if ind in text_lower)
+        
+        # Check for typical lab value patterns
+        lab_value_patterns = re.findall(r'(\d+\.?\d*)\s*(g/dl|g%dl|mg/dl|mmol/l|iu/l|iu/ml|%|fl|pg)', text_lower)
+        
+        if lab_count >= 3 or len(lab_value_patterns) >= 5:
+            return 'lab_report'
+        
+        # ===== SCANNED IMAGE DETECTION =====
+        if len(full_text.strip()) < 300:
+            return 'scanned_image'
+        
+        return 'unknown'
+        
+    except Exception as e:
+        print(f"   ⚠️ Document type detection failed: {e}")
+        return 'unknown'
 
 if __name__ == "__main__":
     import sys
 
     if len(sys.argv) > 1:
         result = extract_tables(sys.argv[1])
-        if result:
-            data = json.loads(result)
+        
+        if isinstance(result, list) and result:
             print("\n📋 EXTRACTED DATA:")
-            for row in data:
+            for row in result:
                 flag_str = f" [{row['flag']}]" if row.get('flag') else ""
                 range_str = f" (Ref: {row['range']})" if row.get('range') else ""
                 unit_str = f" {row['unit']}" if row.get('unit') else ""
                 print(f"  • {row['test']}: {row['value']}{unit_str}{range_str}{flag_str}")
+        elif isinstance(result, str):
+            try:
+                data = json.loads(result)
+                print("\n📋 EXTRACTED DATA (parsed from legacy string):")
+                for row in data:
+                    flag_str = f" [{row['flag']}]" if row.get('flag') else ""
+                    range_str = f" (Ref: {row['range']})" if row.get('range') else ""
+                    unit_str = f" {row['unit']}" if row.get('unit') else ""
+                    print(f"  • {row['test']}: {row['value']}{unit_str}{range_str}{flag_str}")
+            except:
+                print(f"⚠️ Unexpected result: {type(result)}")
+                print(f"   Preview: {str(result)[:500]}")
     else:
         print("Usage: python table_extractor.py <pdf_path>")

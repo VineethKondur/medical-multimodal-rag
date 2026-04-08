@@ -26,6 +26,8 @@ def extract_text_from_pdf(file_path):
     """
     Universal PDF text extractor with OCR fallback.
     Cleans noise while preserving test data.
+    
+    NEW: Also provides classify_pages() for graph awareness!
     """
     raw_text = ""
     page_texts = []
@@ -75,7 +77,6 @@ def _clean_extracted_text(page_texts, is_scanned=False):
 
     # For scanned PDFs, be less aggressive with cleaning
     if is_scanned:
-        # Only remove obvious noise patterns
         cleaned_pages = []
         for page_text in page_texts:
             lines = page_text.split('\n')
@@ -145,7 +146,7 @@ def _find_repeated_lines(page_texts, threshold=0.4):
             normalized = re.sub(r'\s+', ' ', line.strip().lower())
             if normalized and len(normalized) > 10:
                 seen_on_this_page.add(normalized)
-        
+
         for line in seen_on_this_page:
             line_page_count[line] += 1
 
@@ -176,3 +177,160 @@ def _is_noise_line(line, repeated_lines):
             return True
     
     return False
+
+
+def should_attempt_ocr_table_extraction(pages_info):
+    """
+    Determine which 'unsafe' pages should attempt OCR→Table parsing.
+    
+    Scanned lab reports get flagged as 'unsafe' due to large image regions,
+    but they still contain tabular test data that can be extracted via OCR.
+    
+    Returns:
+        list: Page numbers (1-indexed) that are candidates for OCR table parsing
+    """
+    ocr_candidates = []
+    
+    for page_info in pages_info:
+        if page_info.get('is_safe', True):
+            continue  # Safe pages use normal extraction
+            
+        reason = page_info.get('reason', '').lower()
+        
+        # ECG-specific keywords (these should NOT be parsed as tables)
+        ecg_keywords = [
+            'ecg', 'electrocardiogram', 'waveform', 'qrs', 
+            'pr interval', 'qt interval', 'lead ', 'cardiac',
+            'rhythm', 'p-wave', 't-wave', 'sinus rhythm',
+            '12-lead', 'heart rate', 'atrial pause'
+        ]
+        
+        chart_keywords = [
+            'chart', 'graph', 'plot', 'trend', 'visualization'
+        ]
+        
+        is_likely_ecg = sum(1 for kw in ecg_keywords if kw in reason) >= 2
+        is_likely_chart = sum(1 for kw in chart_keywords if kw in reason) >= 1
+        
+        # If it's just "large image region" without ECG/chart indicators
+        # → It's probably a scanned lab report → TRY OCR TABLE PARSING!
+        if ('large image region' in reason or 'heavy vector graphics' in reason) \
+           and not is_likely_ecg \
+           and not is_likely_chart:
+            ocr_candidates.append(page_info['page_num'])
+    
+    if ocr_candidates:
+        print(f"\n   📋 Found {len(ocr_candidates)} scanned page(s) for OCR table parsing\n")
+    
+    return ocr_candidates
+
+# ══════════════════════════════════════════════════════════════════
+# 🔥 NEW: Page Classification for Graph Awareness
+# ════════════════════════════════════════════════════════════════
+
+def classify_pages(file_path):
+    """
+    🔥 MAIN FUNCTION: Analyze each PDF page and detect graphical content.
+    
+    Returns list of dicts with page info:
+    - page_num: int (1-indexed)
+    - has_graphics: bool
+    - is_safe: bool (True = safe for table extraction)
+    - reason: str (why it was flagged if unsafe)
+    
+    Detection uses:
+    1. Image coverage analysis (>20% = likely graphic)
+    2. Vector graphics density (lots of lines = chart)
+    3. ECG-specific terminology scanning
+    
+    NO ML training. Deterministic heuristics only.
+    """
+    import fitz
+    
+    doc = fitz.open(file_path)
+    pages_info = []
+    
+    print("\n" + "="*60)
+    print("🔍 PAGE CLASSIFICATION")
+    print("="*60 + "\n")
+    
+    for i, page in enumerate(doc):
+        info = {
+            'page_num': i + 1,
+            'has_graphics': False,
+            'is_safe': True,
+            'reason': ''
+        }
+        
+        try:
+            # Check 1: Images on page
+            images = page.get_images(full=True)
+            if len(images) > 0:
+                page_area = page.rect.width * page.rect.height
+                img_area = sum(
+                    (page.get_image_rects(img[0])[0].width * 
+                     page.get_image_rects(img[0])[0].height)
+                        for img in images 
+                        if page.get_image_rects(img[0])
+                )
+                
+                image_ratio = img_area / page_area if page_area > 0 else 0
+                
+                if image_ratio > 0.20:  # >20% coverage = likely graphic
+                    info['has_graphics'] = True
+                    info['is_safe'] = False
+                    info['reason'] = f'Large image region ({image_ratio:.0%} of page)'
+            
+            # Check 2: Vector drawings (charts use lots of lines)
+            try:
+                drawings = page.get_drawings()
+                if len(drawings) > 30:  # Lots of drawing ops = likely chart
+                    info['has_graphics'] = True
+                    info['is_safe'] = False
+                    info['reason'] = f'Heavy vector graphics ({len(drawings)} drawing operations)'
+            except Exception:
+                pass
+            
+            # Check 3: ECG-specific text patterns
+            text = page.get_text().lower()
+            ecg_indicators = [
+                'ecg', 'electrocardiogram', 
+                'lead ', 'limb leads', 'precordial leads',
+                'waveform', 'qrs', 'p-wave', 't-wave',
+                'sinus rhythm', 'cardiac axis',
+                '12-lead', 'cardiology'
+            ]
+            
+            ecg_matches = sum(1 for kw in ecg_indicators if kw in text)
+            
+            if ecg_matches >= 4:
+                info['has_graphics'] = True
+                info['is_safe'] = False
+                info['reason'] = f'ECG content detected ({ecg_matches} indicators)'
+            
+        except Exception as page_error:
+            # 🔥 NEW: Per-page error handling (don't let one bad page kill everything)
+            print(f"  ⚠️ Error analyzing page {i+1}: {page_error}")
+            info['is_safe'] = True  # Default to safe on error
+            info['reason'] = f'Analysis error: {str(page_error)[:50]}'
+        
+        pages_info.append(info)
+        
+        # Log result
+        status_icon = "⚠️  SKIP" if not info['is_safe'] else "✅"
+        status_text = "UNSAFE" if not info['is_safe'] else "SAFE  "
+        
+        print(f"  Page {info['page_num']:2d}: [{status_icon}] {status_text}| {info['reason'] or 'Normal text/table'}")
+    
+    doc.close()
+    
+    # Summary
+    safe_count = sum(1 for p in pages_info if p['is_safe'])
+    unsafe_count = len(pages_info) - safe_count
+    
+    if unsafe_count > 0:
+        print(f"\n  🛡️  Will skip {unsafe_count} graphical page(s) during table extraction")
+    
+    print(f"\n{'='*60}\n")
+    
+    return pages_info
