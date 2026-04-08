@@ -1,0 +1,281 @@
+{
+  "total_tests": 38,
+  "microscopic_tests": 1,
+  "results": [
+    {
+      "test": "Haemoglobin (Hb)",
+      "value": "12.6",
+      "unit": "gm/dL",
+      "range": "12.0 - 15.0",
+      "flag": ""
+    },
+    {
+      "test": "Total Wbc Count / Tlc",
+      "value": "5.4",
+      "unit": "thou/\u00b5L",
+      "range": "4.0 - 10.0",
+      "flag": ""
+    },
+    {
+      "test": "Rbc Count",
+      "value": "4.1",
+      "unit": "million/\u00b5L",
+      "range": "3.8 - 4.8",
+      "flag": ""
+    },
+    {
+      "test": "Pcv / Hematocrit",
+      "value": "36.8",
+      "unit": "%",
+      "range": "36.0 - 46.0",
+      "flag": ""
+    },
+    {
+      "test": "Mcv",
+      "value": "94.1",
+      "unit": "fL",
+      "range": "83.0 - 101.0",
+      "flag": ""
+    },
+    {
+      "test": "Mch",
+      "value": "28.2",
+      "unit": "pg",
+      "range": "27.0 - 32.0",
+      "flag": ""
+    },
+    {
+      "test": "Mchc",
+      "value": "32.5",
+      "unit": "g/dL",
+      "range": "31.5 - 34.5",
+      "flag": ""
+    },
+    {
+      "test": "Rdw (Red Cell Distribution Width)",
+      "value": "12.6",
+      "unit": "%",
+      "range": "11.9 - 15.5",
+      "flag": ""
+    },
+    {
+      "test": "Neutrophils",
+      "value": "60.0",
+      "unit": "%",
+      "range": "40 - 80",
+      "flag": ""
+    },
+    {
+      "test": "Lymphocytes",
+      "value": "30.0",
+      "unit": "%",
+      "range": "20 - 40",
+      "flag": ""
+    },
+    {
+      "test": "Eosinophils",
+      "value": "5.0",
+      "unit": "%",
+      "range": "01 - 06",
+      "flag": ""
+    },
+    {
+      "test": "Monocytes",
+      "value": "5.0",
+      "unit": "%",
+      "range": "02 - 10",
+      "flag": ""
+    },
+    {
+      "test": "Absolute Neutrophil Count",
+      "value": "3240.0",
+      "unit": "/\u00b5L",
+      "range": "2000 - 7000",
+      "flag": ""
+    },
+    {
+      "test": "Absolute Lymphocyte Count",
+      "value": "1620.0",
+      "unit": "/\u00b5L",
+      "range": "1000 - 3000",
+      "flag": ""
+    },
+    {
+      "test": "Absolute Eosinophil Count",
+      "value": "270.0",
+      "unit": "/\u00b5L",
+      "range": "20 - 500",
+      "flag": ""
+    },
+    {
+      "test": "Absolute Monocyte Count",
+      "value": "270.0",
+      "unit": "/\u00b5L",
+      "range": "200 - 1000",
+      "flag": ""
+    },
+    {
+      "test": "Absolute Basophil Count",
+      "value": "00000000 LLLL",
+      "unit": "/\u00b5L",
+      "range": "20 - 100",
+      "flag": ""
+    },
+    {
+      "test": "Platelet Count",
+      "value": "210.0",
+      "unit": "thou/\u00b5L",
+      "range": "150 - 410",
+      "flag": ""
+    },
+    {
+      "test": "Mpv (Mean Platelet Volume)",
+      "value": "8.9",
+      "unit": "fL",
+      "range": "6.8 - 10.9",
+      "flag": ""
+    },
+    {
+      "test": "Blood Grouping",
+      "value": "A",
+      "unit": "",
+      "range": "",
+      "flag": ""
+    },
+    {
+      "test": "Rh (D) Typing",
+      "value": "Positive",
+      "unit": "",
+      "range": "",
+      "flag": ""
+    },
+    {
+      "test": "Fasting Plasma Glucose",
+      "value": "88.0",
+      "unit": "mg/dL",
+      "range": "74 - 99",
+      "flag": ""
+    },
+    {
+      "test": "Glucose Random",
+      "value": "139.0",
+      "unit": "mg/dL",
+      "range": "70 - 140",
+      "flag": ""
+    },
+    {
+      "test": "Hiv Antibody Rapid Card",
+      "value": "Non Reactive",
+      "unit": "",
+      "range": "Non Reactive",
+      "flag": ""
+    },
+    {
+      "test": "Hepatitis B Surface Antigen (Hbs Ag)",
+      "value": "Non Reactive",
+      "unit": "",
+      "range": "Non Reactive",
+      "flag": ""
+    },
+    {
+      "test": "Hepatitis C Antibody (Hcv) Rapid Card",
+      "value": "Reactive",
+      "unit": "",
+      "range": "Non Reactive",
+      "flag": ""
+    },
+    {
+      "test": "Vdrl (Rpr)",
+      "value": "Reactive 1:64",
+      "unit": "NA",
+      "range": "Non Reactive",
+      "flag": ""
+    },
+    {
+      "test": "Tsh 3Rd Generation",
+      "value": "5.6",
+      "unit": "\u00b5IU/mL",
+      "range": "0.270 - 4.200",
+      "flag": ""
+    },
+    {
+      "test": "Colour",
+      "value": "Pale Yellow",
+      "unit": "",
+      "range": "Pale Yellow",
+      "flag": ""
+    },
+    {
+      "test": "Appearance",
+      "value": "Clear",
+      "unit": "",
+      "range": "Clear",
+      "flag": ""
+    },
+    {
+      "test": "Specific Gravity",
+      "value": "1.015",
+      "unit": "",
+      "range": "1.003 - 1.035",
+      "flag": ""
+    },
+    {
+      "test": "P H",
+      "value": "6.0",
+      "unit": "",
+      "range": "4.7 - 7.5",
+      "flag": ""
+    },
+    {
+      "test": "Glucose",
+      "value": "Not Detected",
+      "unit": "",
+      "range": "Not Detected",
+      "flag": ""
+    },
+    {
+      "test": "Protein",
+      "value": "Not Detected",
+      "unit": "",
+      "range": "Not Detected",
+      "flag": ""
+    },
+    {
+      "test": "Ketones",
+      "value": "Not Detected",
+      "unit": "",
+      "range": "Not Detected",
+      "flag": ""
+    },
+    {
+      "test": "Blood",
+      "value": "Not Detected",
+      "unit": "",
+      "range": "Not Detected",
+      "flag": ""
+    },
+    {
+      "test": "Bilirubin",
+      "value": "Not Detected",
+      "unit": "",
+      "range": "Not Detected",
+      "flag": ""
+    },
+    {
+      "test": "diagnosis, to detect an unsuspected hematologic disorder, or to monitor effects of radiation or chemotherapy. Abnormal results may be due to",
+      "value": "a",
+      "unit": "",
+      "range": "",
+      "flag": ""
+    }
+  ],
+  "microscopic_only": [
+    {
+      "test": "Rbc Count",
+      "value": "4.1",
+      "unit": "million/\u00b5L",
+      "range": "3.8 - 4.8",
+      "flag": ""
+    }
+  ]
+}

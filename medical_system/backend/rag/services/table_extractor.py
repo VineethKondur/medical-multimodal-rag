@@ -1,3 +1,16 @@
+#!/usr/bin/env python3
+"""
+🏥 COMPLETE MEDICAL LAB REPORT EXTRACTOR v17.0 - UNIVERSAL EDITION
+==========================================================================
+Handles: 
+✅ 1-page structured PDFs (Camelot + pdfplumber)
+✅ Scanned/image PDFs (OCR + Smart Parser v3.0)
+✅ ECG/Graphical PDFs (auto-detect + skip)
+✅ Multi-page lab reports (7+ pages, with microscopic extraction)
+
+Author: Fixed & Optimized for Production Use
+"""
+
 import gc
 import camelot
 import re
@@ -8,7 +21,7 @@ import numpy as np
 
 
 # ============================================================================
-# 🔥 PATTERNS
+# 🔥 PATTERNS & CONSTANTS
 # ============================================================================
 
 RANGE_PATTERN = r'\d+(?:\.\d+)?\s*[-–—]\s*\d+(?:\.\d+)?|<[ ]*\d+(?:\.\d+)?|>[ ]*\d+(?:\.\d+)?'
@@ -31,8 +44,8 @@ METADATA_PATTERNS = [
     r'^sample\s*:', r'^method\s:*', r'patient\s*(id|name)', r'billing\s*date',
     r'sample\s*(collected|received)', r'report\s*(released|status|date)',
     r'referring\s*doctor', r'accession\s*no', r'p\.\s*id', r'processed\s*by',
-    r'end\s+of\s+report', r'pvt\.?\s*ltd', r'diagnostics', r'consultant',
-    r'senior\s+consultant', r'\bdr\.?\b', r'\bmd\b', r'\bhospital\b',
+    r'end\s+of\s*report', r'pvt\.?\s*ltd', r'diagnostics', r'consultant',
+    r'senior\s*consultant', r'\bdr\.?\b', r'\bmd\b', r'\bhospital\b',
     r'\bipd\b', r'\bopd\b', r'\btechnician\b', r'\bsignature\b', r'\bsigned\b',
     r'\bpathologist\b', r'\bverified\s+by\b', r'\bauthorized\b',
     r'time\s*\d', r'\d{2}:\d{2}', r'report\s+(release|time)',
@@ -59,12 +72,29 @@ BLOCKED_TESTS = {
     "differential leucocyte count", "dlc", "absolute count",
 }
 
+VALID_CATEGORICAL_VALUES = {
+    'normal', 'abnormal', 'borderline', 'low', 'high',
+    'positive', 'negative', 'reactive', 'non-reactive', 'non reactive',
+    'detected', 'not detected', 'present', 'absent',
+    'none', 'no', 'yes', 'trace', 'small', 'moderate', 'large',
+    'good', 'fair', 'poor', 'clear', 'cloudy', 'turbid',
+    'pale yellow', 'yellow', 'straw', 'amber', 'red', 'brown',
+    'colorless', 'white', 'translucent', 'opaque',
+    '1+', '2+', '3+', '4+', '++', '+++', '++++',
+    'a', 'b', 'ab', 'o',
+    'scarce', 'occasional', 'few', 'many', 'plenty',
+    'non-hemolyzed', 'hemolyzed', 'nil', 'within normal limits',
+    'adequate', 'inadequate',
+}
+
 
 # ============================================================================
-# 🔥 VALIDATION FUNCTIONS
+# 🔥 VALIDATION FUNCTIONS (From your WORKING old version)
 # ============================================================================
 
 def is_garbage_value(value_str):
+    if not value_str:
+        return False
     for pattern in GARBAGE_PATTERNS:
         if re.search(pattern, value_str, re.IGNORECASE):
             return True
@@ -72,6 +102,8 @@ def is_garbage_value(value_str):
 
 
 def is_narrative_text(text):
+    if not text:
+        return False
     for pattern in NARRATIVE_PATTERNS:
         if re.search(pattern, text, re.IGNORECASE):
             return True
@@ -195,30 +227,25 @@ def is_valid_in_ocr_context(test_name, value, unit="", ref_range=""):
 
 
 # ============================================================================
-# 🔥 UTILITY FUNCTIONS
+# 🔥 UTILITY FUNCTIONS (From your WORKING old version)
 # ============================================================================
 
 def extract_flag_from_value(value_str):
-    """Extract H/L flags from values"""
     flag = ""
     cleaned = str(value_str).strip()
-
     flag_match = re.search(r'\s*\[?([HL])\]?\s*$', cleaned, re.IGNORECASE)
     if flag_match:
         flag_char = flag_match.group(1).upper()
         flag = "HIGH" if flag_char == "H" else "LOW"
         cleaned = cleaned[:flag_match.start()].strip()
-
     word_match = re.search(r'\s+(High|Low)\s*$', cleaned, re.IGNORECASE)
     if word_match:
         flag = word_match.group(1).upper()
         cleaned = cleaned[:word_match.start()].strip()
-
     return cleaned, flag
 
 
 def extract_first_number(text):
-    """Extract first valid number"""
     try:
         normalized = str(text).strip().rstrip(".,;:! ")
         normalized = re.sub(r'(\d+),(\d{1,2})(?!\d)', r'\1.\2', normalized)
@@ -274,10 +301,6 @@ def clean_test_name(test_str):
     except Exception: return "Unknown"
 
 
-# ============================================================================
-# 🔥 UNITS DETECTION
-# ============================================================================
-
 UNITS_KEYWORDS = [
     'gm/dl', 'g/dl', 'g%dl', 'gldl', 'mg/dl', 'mg%', 'ul', 'iu/l', 'iu/ml',
     'fl', 'pg', '%', 'cmm', 'milllcmm', 'million/cumm', 'x10^3/ul', 'x10^9/l',
@@ -288,7 +311,6 @@ UNITS_SET = {u.replace('.', '').replace('/', '').lower() for u in UNITS_KEYWORDS
 
 
 def is_unit(word):
-    """Check if word looks like a unit"""
     if not word: return False
     w_clean = word.replace('.', '').replace('/', '').lower().strip()
     
@@ -310,22 +332,19 @@ def is_unit(word):
 
 
 # ============================================================================
-# 🔥🔥🔥 MULTI-LINE SMART PARSER v3.0 🔥🔥🔥
+# 🔥🔥🔥 MULTI-LINE SMART PARSER v3.0 (Your WORKING version)
 # ============================================================================
 
 def smart_parse_ocr_results(ocr_results):
     """
     Properly handles multi-line test entries.
-    
-    CRITICAL FIX: Track consumed rows correctly to avoid value shifting!
+    CRITICAL FIX: Track consumed rows correctly!
     """
-    
     if not ocr_results:
         return []
     
     print("   🚀 Using MULTI-LINE SMART parser v3.0...")
     
-    # ── Step 1: Extract tokens ─────────────────────────────────────────────
     tokens = []
     for item in ocr_results:
         bbox, text, conf = item[0], item[1], item[2]
@@ -344,11 +363,8 @@ def smart_parse_ocr_results(ocr_results):
         })
     
     print(f"   📊 Total tokens: {len(tokens)}")
-    
-    # Sort by Y, then X
     tokens.sort(key=lambda t: (t['y_center'], t['x_min']))
     
-    # ── Step 2: Group into physical rows ──────────────────────────────────
     rows = []
     current_row = []
     current_y = None
@@ -370,7 +386,6 @@ def smart_parse_ocr_results(ocr_results):
     
     print(f"   📑 Formed {len(rows)} physical rows")
     
-    # ── Step 3: Classify each row ────────────────────────────────────────
     classified_rows = []
     for idx, row in enumerate(rows):
         row_texts = [t['text'].strip() for t in row]
@@ -385,24 +400,20 @@ def smart_parse_ocr_results(ocr_results):
             'type': row_type
         })
     
-    # Debug: Print first few rows with classification
     print(f"   📋 Row classification (first 30):")
     for i, r in enumerate(classified_rows[:30]):
         print(f"      [{r['index']:2d}] {r['type']:18s} | {r['full_text'][:60]}")
     
-    # ── Step 4: Merge consecutive rows into logical test entries ───────────
     results = []
     i = 0
     
     while i < len(classified_rows):
         row = classified_rows[i]
         
-        # Skip non-test rows
         if row['type'] == 'SKIP':
             i += 1
             continue
         
-        # Case 1: TEST_NAME_ONLY - look ahead for value
         if row['type'] == 'TEST_NAME_ONLY':
             merged = merge_test_name_with_value(classified_rows, i)
             if merged:
@@ -410,12 +421,10 @@ def smart_parse_ocr_results(ocr_results):
                 print(f"      ✅ MERGED [{i:2d}]: {merged['test'][:30]:30s} = {merged['value']:>8s} "
                       f"{merged.get('unit',''):6s} (ref: {merged.get('range','')}) "
                       f"[{merged.get('flag','')}]")
-                # CRITICAL: Advance by EXACTLY the number of rows we consumed
                 i += merged['_rows_consumed']
             else:
                 i += 1
         
-        # Case 2: MIXED row (has both test name and value in same row)
         elif row['type'] == 'MIXED':
             parsed = parse_mixed_row_v2(row)
             if parsed:
@@ -425,15 +434,12 @@ def smart_parse_ocr_results(ocr_results):
                       f"[{parsed.get('flag','')}]")
             i += 1
         
-        # Case 3: VALUE_ROW without preceding test name (orphan) - skip
         elif row['type'] == 'VALUE_ROW':
             i += 1
         
-        # Case 4: Unit/range only row - skip (will be consumed by merge logic)
         elif row['type'] == 'UNIT_RANGE_ROW':
             i += 1
             
-        # Case 5: Flag only - skip (will be consumed by merge logic)
         elif row['type'] == 'FLAG_ONLY':
             i += 1
         
@@ -445,51 +451,32 @@ def smart_parse_ocr_results(ocr_results):
 
 
 def classify_row_type_v2(row_texts, full_text):
-    """
-    IMPROVED row classification.
-    
-    Returns one of:
-    - TEST_NAME_ONLY: Has test-like text but NO numeric value
-    - VALUE_ROW: Has numeric value at START (and possibly flag/unit after)
-    - MIXED: Has BOTH test name AND numeric value
-    - UNIT_RANGE_ROW: Only has units and/or ranges (like "% 40-50%")
-    - FLAG_ONLY: Just [H] or [L]
-    - SKIP: Metadata, headers, garbage
-    """
-    
     if not full_text.strip():
         return 'SKIP'
     
-    # Flag-only check
     if len(row_texts) == 1 and re.match(r'^\[?[HL]\]?$', row_texts[0], re.IGNORECASE):
         return 'FLAG_ONLY'
     
-    # Metadata check
     if is_metadata_text(full_text):
         return 'SKIP'
     
-    # Blocked tests/headers check
     clean = clean_test_name(full_text)
     if clean.lower() in BLOCKED_TESTS:
         return 'SKIP'
     
-    # Check for numeric values in the row
     has_numeric = False
     first_numeric_idx = None
     
     for i, text in enumerate(row_texts):
-        # Check for standalone number (potential value)
         if re.match(r'^[\d,.]+(\s*\[?[HL]\]?)?$', text, re.IGNORECASE):
             has_numeric = True
             first_numeric_idx = i
             break
-        # Check for number at start of text
         num_match = re.match(r'^([\d,.]+)', text)
         if num_match:
             try:
                 val = float(num_match.group(1).replace(',', ''))
-                if val > 0 and val < 100000:  # Reasonable lab value range
-                    # Make sure it's not part of a range pattern
+                if val > 0 and val < 100000:
                     if not re.match(r'^[\d,.]+\s*[-–—]\s*[\d,.]+$', text):
                         has_numeric = True
                         first_numeric_idx = i
@@ -497,40 +484,22 @@ def classify_row_type_v2(row_texts, full_text):
             except:
                 pass
     
-    # Classify based on findings
     if not has_numeric:
-        # No numeric value found
-        # Check if it looks like a unit-only or range-only row
         if is_unit(row_texts[0]) if row_texts else False:
             return 'UNIT_RANGE_ROW'
         if re.search(RANGE_PATTERN, full_text) and len(full_text) < 25:
             return 'UNIT_RANGE_ROW'
-        # Check if it could be a test name
         if re.search(r'[a-zA-Z]{3,}', full_text) and len(full_text) > 3:
             return 'TEST_NAME_ONLY'
         return 'SKIP'
     
-    # Has numeric value - determine type based on position
     if first_numeric_idx == 0:
-        # Number is at start → VALUE_ROW (unless there's also text before it on same token)
-        post_text = ' '.join(row_texts[1:]) if len(row_texts) > 1 else ""
-        
-        # If there's meaningful text AFTER the number too, it might be mixed
-        # But typically "9.10 [L] gm/dl" should be VALUE_ROW
         return 'VALUE_ROW'
     else:
-        # Number is NOT at start → there's text before it → MIXED
         return 'MIXED'
 
 
 def merge_test_name_with_value(classified_rows, start_idx):
-    """
-    FIXED v7: Aggressively searches up to 4 rows back for ANY missing info.
-    
-    Key insight: Range rows like "% 40-70 %" get classified as MIXED/VALUE_ROW
-    because they contain numbers. So we must check ALL previous rows' content,
-    not just their type!
-    """
     test_row = classified_rows[start_idx]
     test_name = clean_test_name(test_row['full_text'])
     
@@ -546,14 +515,9 @@ def merge_test_name_with_value(classified_rows, start_idx):
         '_rows_consumed': 1
     }
     
-    # ═══════════════════════════════════════════════════════════════
-    # STRATEGY 1: Look BACKWARD (reversed layout)
-    # ═══════════════════════════════════════════════════════════════
-    
     if start_idx >= 2:
         prev_row = classified_rows[start_idx - 1]
         
-        # Check if previous row has a numeric value
         prev_has_value = False
         for text in prev_row['texts']:
             if re.match(r'^[\d,.]+', text):
@@ -563,26 +527,19 @@ def merge_test_name_with_value(classified_rows, start_idx):
         if prev_has_value:
             print(f"      🔍 Found VALUE-BEFORE pattern for: {test_name}")
             
-            # STEP 1: Extract value from N-1
             value_info = extract_value_from_row_v2(prev_row['texts'])
             if value_info and value_info.get('value'):
                 result['value'] = value_info['value']
                 
                 if value_info.get('flag'):
                     result['flag'] = value_info['flag']
-                    print(f"         ↳ Flag in value row: {result['flag']}")
                 
                 if value_info.get('unit'):
                     result['unit'] = value_info['unit']
                 
                 prev_row['_consumed'] = True
                 
-                # ════════════════════════════════════════════════
-                # STEP 2: Scan ALL previous rows (up to 4 back)
-                #        Ignore type - just look for patterns!
-                # ════════════════════════════════════════════════
-                
-                max_lookback = min(4, start_idx)  # Check up to 4 rows back
+                max_lookback = min(4, start_idx)
                 
                 for offset in range(2, max_lookback + 1):
                     check_row = classified_rows[start_idx - offset]
@@ -590,61 +547,44 @@ def merge_test_name_with_value(classified_rows, start_idx):
                     if check_row.get('_consumed'):
                         continue
                     
-                    # Skip test name rows (don't consume another test's data!)
                     if check_row['type'] == 'TEST_NAME_ONLY':
                         continue
                     
-                    # Search ALL texts in this row for useful info
                     found_something_in_this_row = False
                     
                     for text in check_row['texts']:
-                        # 1) Look for RANGE pattern (e.g., "40-70", "150-450")
                         range_match = re.search(RANGE_PATTERN, text)
                         if range_match and not result['range']:
                             candidate_range = range_match.group(0)
-                            
-                            # Validate: range should make sense for context
-                            # (not too short, not a year, etc.)
                             range_parts = re.split(r'[-–—]', candidate_range)
                             if len(range_parts) == 2:
                                 try:
                                     low, high = float(range_parts[0]), float(range_parts[1])
-                                    # Sanity check: high > low, reasonable lab values
                                     if 0 < low < high < 100000:
                                         result['range'] = candidate_range
-                                        print(f"         ↳ Found RANGE in N-{offset}: {result['range']}")
                                         found_something_in_this_row = True
                                 except ValueError:
                                     pass
                         
-                        # 2) Look for UNIT (if we don't have one yet)
                         if is_unit(text) and not result['unit']:
                             result['unit'] = text
-                            print(f"         ↳ Found UNIT in N-{offset}: {result['unit']}")
                             found_something_in_this_row = True
                         
-                        # 3) Look for orphan FLAG ([H] or [L] alone)
                         if re.match(r'^\[?[HL]\]?$', text, re.IGNORECASE):
                             if not result['flag']:
                                 result['flag'] = "HIGH" if 'H' in text.upper() else "LOW"
-                                print(f"         ↳ Found FLAG in N-{offset}: {result['flag']}")
                                 found_something_in_this_row = True
                     
-                    # Mark row as consumed ONLY if we found something
                     if found_something_in_this_row:
                         check_row['_consumed'] = True
                 
-                # Validate
                 value_num = extract_first_number(result['value'])
                 if value_num:
                     result['value'] = str(value_num)
-                    if is_valid_in_ocr_context(result['test'], result['value'],
-                                               result.get('unit',''), result.get('range','')):
-                        return result
-    
-    # ═══════════════════════════════════════════════════════════════
-    # STRATEGY 2: Look FORWARD (normal layout)
-    # ═══════════════════════════════════════════════════════════════
+                    
+                if is_valid_in_ocr_context(result['test'], result['value'],
+                                           result.get('unit',''), result.get('range','')):
+                    return result
     
     if start_idx + 1 < len(classified_rows):
         next_row = classified_rows[start_idx + 1]
@@ -664,14 +604,13 @@ def merge_test_name_with_value(classified_rows, start_idx):
                 result['range'] = value_info.get('range', '')
                 result['_rows_consumed'] = 2
                 
-                # Check forward for additional info
                 for extra_offset in range(2, 5):
                     if start_idx + extra_offset < len(classified_rows):
                         extra = classified_rows[start_idx + extra_offset]
                         if extra.get('_consumed'):
                             continue
                         if extra['type'] == 'TEST_NAME_ONLY':
-                            break  # Don't consume another test's data!
+                            break
                         
                         for text in extra['texts']:
                             if extra['type'] == 'FLAG_ONLY' and not result['flag']:
@@ -696,11 +635,8 @@ def merge_test_name_with_value(classified_rows, start_idx):
 
 
 def parse_mixed_row_v2(row):
-    """Parse a MIXED row that has both test name and value"""
     texts = row['texts']
-    full_text = row['full_text']
     
-    # Find first numeric value
     value_idx = None
     for i, text in enumerate(texts):
         if re.match(r'^[\d,.]+(\s*\[?[HL]\]?)?$', text, re.IGNORECASE):
@@ -710,7 +646,6 @@ def parse_mixed_row_v2(row):
     if value_idx is None or value_idx == 0:
         return None
     
-    # Extract test name (everything before value)
     test_name_parts = texts[:value_idx]
     test_name_parts = [p for p in test_name_parts if p not in [':', '-', '–', '—']]
     test_name = clean_test_name(' '.join(test_name_parts))
@@ -718,7 +653,6 @@ def parse_mixed_row_v2(row):
     if not test_name or test_name.lower() in BLOCKED_TESTS:
         return None
     
-    # Extract value and everything after
     remaining = texts[value_idx:]
     value_str = ' '.join(remaining)
     value_clean, flag = extract_flag_from_value(value_str)
@@ -727,7 +661,6 @@ def parse_mixed_row_v2(row):
     if value_num is None:
         return None
     
-    # Look for unit and range in remaining tokens
     unit = ''
     ref_range = ''
     for text in remaining[1:]:
@@ -753,13 +686,11 @@ def parse_mixed_row_v2(row):
 
 
 def extract_value_from_row_v2(texts):
-    """Extract value, flag, unit, range from a VALUE_ROW"""
     if not texts:
         return None
     
     result = {'value': '', 'flag': '', 'unit': '', 'range': ''}
     
-    # First token should be the value
     value_raw = texts[0]
     value_clean, flag = extract_flag_from_value(value_raw)
     
@@ -770,16 +701,12 @@ def extract_value_from_row_v2(texts):
     result['value'] = str(value_num)
     result['flag'] = flag
     
-    # Process remaining tokens for flag, unit, range
     for text in texts[1:]:
-        # Flag check
         if re.match(r'^\[?[HL]\]?$', text, re.IGNORECASE):
             if not result['flag']:
                 result['flag'] = "HIGH" if 'H' in text.upper() else "LOW"
-        # Unit check
         elif is_unit(text) and not result['unit']:
             result['unit'] = text
-        # Range check
         else:
             range_match = re.search(RANGE_PATTERN, text)
             if range_match and not result['range']:
@@ -789,7 +716,7 @@ def extract_value_from_row_v2(texts):
 
 
 # ============================================================================
-# 🔥 TABLE DETECTION (for digital PDFs)
+# 🔥 TABLE DETECTION (For digital PDFs - Your WORKING version)
 # ============================================================================
 
 def get_headers(df):
@@ -803,9 +730,6 @@ def get_headers(df):
     if len(df) > 0: return df.iloc[0], 0, False
     return None, 0, False
 
-# ============================================================================
-# 🔥🔥🔥 NEW: ECG/Qualitative Table Detection 🔥🔥🔥
-# ============================================================================
 
 ECG_QUALITATIVE_TABLE_INDICATORS = {
     'ecg quality', 'physiologist', 'morphology', 'rhythm present',
@@ -816,17 +740,11 @@ ECG_QUALITATIVE_TABLE_INDICATORS = {
 }
 
 def is_ecg_qualitative_table(headers):
-    """
-    Detect tables that contain qualitative ECG assessments (NOT numeric lab values).
-    
-    🔥 FIXED v4.2: Added exception for known lab report sections.
-    """
     if not headers:
         return False
     
     header_text = ' '.join(str(h).lower() for h in headers)
     
-    # 🔥 NEW: If this looks like a LAB REPORT section, NEVER skip it!
     lab_report_indicators = [
         'hemoglobin', 'rbc', 'wbc', 'platelet', 'cbc', 'blood count',
         'differential', 'neutrophil', 'lymphocyte', 'eosinophil', 'monocyte',
@@ -836,45 +754,29 @@ def is_ecg_qualitative_table(headers):
     ]
     
     lab_indicator_count = sum(1 for ind in lab_report_indicators if ind in header_text)
-    
-    # If it contains lab test names, it's a DATA table, not qualitative!
     if lab_indicator_count >= 1:
-        return False  # ✅ Don't skip - this is real lab data!
+        return False
     
-    # Original ECG check (only applies if no lab indicators found)
     ecg_indicator_count = sum(1 for indicator in ECG_QUALITATIVE_TABLE_INDICATORS 
                          if indicator in header_text)
-    
     return ecg_indicator_count >= 2
 
 
 def table_contains_qualitative_values(df, start_idx=1):
-    """
-    Check if table values are mostly text (qualitative) rather than numbers.
-    
-    🔥 FIXED v4.2: More lenient - allows lab report tables with mixed content.
-    Only skips truly non-data tables (like ECG narrative findings).
-    
-    Returns:
-        bool: True if >85% of values are non-numeric text (raised threshold from 70%)
-    """
     total_cells = 0
     text_cells = 0
     numeric_cells = 0
     
-    # Check first 15 data rows (increased from 10)
     for i in range(start_idx, min(start_idx + 15, len(df))):
         row = df.iloc[i]
         for val in row:
             val_str = str(val).strip()
             
-            # Skip empty/NaN cells entirely
             if not val_str or val_str.lower() in ['nan', '', 'none', 'na', 'n/a']:
                 continue
                 
             total_cells += 1
             
-            # Check if value is purely numeric (including integers, decimals, scientific notation)
             if re.match(r'^[\d.,eE+-]+$', val_str):
                 try:
                     float(val_str.replace(',', ''))
@@ -883,7 +785,6 @@ def table_contains_qualitative_values(df, start_idx=1):
                 except ValueError:
                     pass
             
-            # Known LAB VALUES that should NOT be treated as qualitative:
             lab_friendly_values = [
                 'normal', 'abnormal', 'borderline', 'low', 'high',
                 'positive', 'negative', 'reactive', 'non-reactive',
@@ -894,10 +795,8 @@ def table_contains_qualitative_values(df, start_idx=1):
             ]
             
             if val_str.lower() in lab_friendly_values:
-                # These are common in lab reports - don't penalize heavily
-                text_cells += 0.3  # Weighted less than pure text
+                text_cells += 0.3
             else:
-                # Pure narrative text (like ECG findings)
                 if not re.search(r'\d', val_str):
                     text_cells += 1
     
@@ -907,13 +806,11 @@ def table_contains_qualitative_values(df, start_idx=1):
     text_ratio = text_cells / total_cells
     numeric_ratio = numeric_cells / total_cells
     
-    # 🔥 NEW: If we have ANY significant numeric content (>20%), don't skip!
-    # Lab reports often have mixed tables (some numeric, some categorical)
     if numeric_ratio >= 0.20:
         return False
     
-    # Only skip if TRULY text-heavy (>85% raised from 70%)
     return text_ratio > 0.85
+
 
 def format_table(df, context="table"):
     rows = []
@@ -921,16 +818,19 @@ def format_table(df, context="table"):
         headers, start_idx, has_headers = get_headers(df)
         if headers is None: return []
         headers = [str(h).lower().strip() for h in headers]
-        # 🔥🔥🔥 NEW: Skip ECG qualitative tables entirely! 🔥🔥🔥
+        
+        # Skip ECG tables
         if is_ecg_qualitative_table(headers):
-            print(f"      ⏭️ Skipping ECG qualitative table (headers: {headers[:2]}...)")
+            print(f"      ⏭️ Skipping ECG qualitative table")
             return []
         
-        # Also check if data rows are mostly qualitative
+        # Skip qualitative tables
         if table_contains_qualitative_values(df, start_idx):
-            print("      ⏭️ Skipping qualitative table (>70% text values)")
+            print("      ⏭️ Skipping qualitative table (>85% text values)")
             return []
+        
         test_idx = value_idx = unit_idx = range_idx = status_idx = None
+        
         for i, h in enumerate(headers):
             h_lower = h.lower()
             if test_idx is None and any(x in h_lower for x in ["test", "parameter", "name", "analyte", "description"]): test_idx = i
@@ -1025,7 +925,7 @@ def format_table(df, context="table"):
         else:
             old_idx, existing = seen[key], unique_rows[seen[key]]
             if row["range"] and not existing["range"]: unique_rows[old_idx] = row
-            elif row.get("flag") and not existing.get("flag"): unique_rows[old_idx] = row
+            elif row.get("flag") and not existing.get("flag"): unique_rows[old_idx]["flag"] = row["flag"]
     return unique_rows
 
 
@@ -1073,7 +973,7 @@ def _process_pdfplumber_tables(tables, context="table") -> list:
 
 
 # ============================================================================
-# 🔥 TEXT-BASED TEST EXTRACTION
+# 🔥 TEXT-BASED TEST EXTRACTION (Your WORKING version)
 # ============================================================================
 
 def extract_text_based_tests(file_path: str, is_ocr=False) -> list:
@@ -1118,10 +1018,8 @@ def extract_text_based_tests(file_path: str, is_ocr=False) -> list:
         if re.match(r'^(Sample|Method)\s*:', line, re.IGNORECASE): continue
         if len(line) > 120: continue
         
-        # 🔥🔥🔥 NEW: Skip ECG narrative lines 🔥🔥🔥
         line_lower = line.lower()
         
-        # Skip lines that look like ECG findings (not numeric lab tests)
         ecg_narrative_patterns = [
             r'^ecg quality:', r'^ventricular rate:\s*(normal|bradycardia|tachycardia)',
             r'^pr interval:\s*(normal|prolonged)', r'^qrs duration:\s*(normal|wide)',
@@ -1136,9 +1034,8 @@ def extract_text_based_tests(file_path: str, is_ocr=False) -> list:
         
         is_ecg_narrative = any(re.search(p, line_lower) for p in ecg_narrative_patterns)
         if is_ecg_narrative:
-            continue  # Skip this line - it's ECG narrative, not a lab test
+            continue
         
-        # Skip lines where value is clearly non-numeric text (and not serological)
         parts = re.split(r'\s{2,}|\t', line)
         if len(parts) >= 2:
             potential_value = parts[-1] if ':' not in parts[-2] else parts[-1]
@@ -1151,6 +1048,7 @@ def extract_text_based_tests(file_path: str, is_ocr=False) -> list:
                                     ['test', 'screen', 'pregnancy', 'hiv', 'urine'])
                 if not is_sero_or_urine:
                     continue
+                    
         parts = re.split(r'\s{2,}|\t', line)
         if len(parts) == 1: parts = line.split()
         if len(parts) >= 2:
@@ -1207,143 +1105,10 @@ def detect_if_scanned(file_path: str) -> bool:
 
 
 # ============================================================================
-# 🔥🔥🔥 MAIN EXTRACTION FUNCTION - FIXED v4.1 🔥🔥🔥
-# ============================================================================
-
-def extract_tables(file_path: str) -> list:
-    """
-    ✅✅✅ FIXED v4.1: Returns LIST (not string!)
-    NEW: Skips extraction for non-lab documents (ECG, X-ray, etc.)
-    
-    Args:
-        file_path: Path to PDF file
-        
-    Returns:
-        list: List of dicts with keys: test, value, unit, range, flag
-              Returns empty list [] for non-lab documents or on failure
-    """
-    all_table_rows, extractor_stats, is_scanned = [], {}, False
-    
-    try:
-        is_scanned = detect_if_scanned(file_path)
-        print(f"📄 Detected: {'SCANNED PDF (SMART parser v3.0)' if is_scanned else 'DIGITAL PDF'}")
-
-        # ================================================================
-        # 🔥🔥🔥 NEW: Document Type Detection & Early Exit 🔥🔥🔥
-        # ================================================================
-        doc_type = _detect_document_type(file_path)
-        print(f"📋 Document type: {doc_type.upper()}")
-        
-        # Smart handling based on document type
-        if doc_type == 'ecg_report':
-            print(f"\n{'='*60}")
-            print(f"⏭️  SKIPPING TABLE EXTRACTION (ECG Document)")
-            print(f"{'='*60}")
-            print(f"   Reason: This is an ECG report - graph analyzer will handle it")
-            print(f"   Result: Returning empty list (ECG data extracted separately)")
-            print(f"{'='*60}\n")
-            return []  # ECG reports don't have lab tables
-            
-        elif doc_type == 'radiology_image':
-            print(f"\n{'='*60}")
-            print(f"⏭️  SKIPPING TABLE EXTRACTION (Radiology Image)")
-            print(f"{'='*60}")
-            print(f"   Reason: This is a radiology image (X-ray, CT, MRI)")
-            print(f"   Result: Returning empty list (no tabular data)")
-            print(f"{'='*60}\n")
-            return []  # X-rays/CTs don't have lab tables
-            
-        elif doc_type == 'scanned_image':
-            # ✅ NEW: Don't skip! Try OCR-based extraction for scanned lab reports
-            print(f"\n{'='*60}")
-            print(f"📄 SCANNED DOCUMENT DETECTED - Attempting OCR Table Extraction")
-            print(f"{'='*60}")
-            print(f"   Reason: This appears to be a scanned document (possibly a lab report)")
-            print(f"   Action: Will attempt OCR → Structured table parsing")
-            print(f"{'='*60}\n")
-            
-            # Don't return early - let the function continue to try OCR parsing
-            # The extract_text_based_tests() function below will handle OCR
-            pass
-        
-        else:
-            print(f"   ✓ Proceeding with table extraction (document type: {doc_type})\n")
-        
-        # Only proceed with extraction for lab reports or unknown docs
-        print(f"   ✓ Proceeding with table extraction...\n")
-
-        camelot_rows = [] if is_scanned else extract_with_camelot(file_path)
-        pdfplumber_rows = [] if is_scanned else extract_with_pdfplumber(file_path)
-        text_based_rows = extract_text_based_tests(file_path, is_ocr=is_scanned)
-
-        extractor_stats = {
-            "camelot": len(camelot_rows),
-            "pdfplumber": len(pdfplumber_rows),
-            "text": len(text_based_rows),
-        }
-
-        seen = {}
-        for source_name, row_list in [
-            ("camelot", camelot_rows),
-            ("pdfplumber", pdfplumber_rows),
-            ("text", text_based_rows),
-        ]:
-            for row in row_list:
-                test_key = f"{row.get('test', '').lower().strip()}|{row.get('unit', '').lower().strip()}"
-                if not test_key:
-                    continue
-                if test_key not in seen:
-                    seen[test_key] = len(all_table_rows)
-                    all_table_rows.append(row)
-                else:
-                    old_idx, existing = seen[test_key], all_table_rows[seen[test_key]]
-                    if row.get("range") and not existing.get("range"):
-                        all_table_rows[old_idx] = row
-                    elif row.get("flag") and not existing.get("flag"):
-                        all_table_rows[old_idx] = row
-
-    except Exception as e:
-        print(f"⚠️ Table extraction failed: {e}")
-        import traceback
-        traceback.print_exc()
-        return []
-    finally:
-        gc.collect()
-
-    # Print summary
-    print(f"\n{'=' * 60}\n📊 EXTRACTION SUMMARY ({'SCANNED' if is_scanned else 'DIGITAL'})\n{'=' * 60}")
-    if not is_scanned:
-        print(f"   Camelot:     {extractor_stats.get('camelot', 0)} rows")
-        print(f"   pdfplumber:  {extractor_stats.get('pdfplumber', 0)} rows")
-    print(f"   Text-based:  {extractor_stats.get('text', 0)} rows")
-    print(f"{'=' * 60}")
-    print(f"   MERGED TOTAL: {len(all_table_rows)} unique rows")
-
-    flagged = [r for r in all_table_rows if r.get("flag")]
-    if flagged:
-        print(f"   ⚠️  ABNORMAL: {len(flagged)} tests flagged")
-        for r in flagged[:8]:
-            print(f"      → {r['test']}: {r['value']} {r['unit']} [{r['flag']}]")
-        if len(flagged) > 8:
-            print(f"      ... and {len(flagged) - 8} more")
-    print(f"{'=' * 60}\n")
-
-    if not all_table_rows:
-        print("⚠️ No valid lab data extracted")
-        return []
-
-    # ✅ Return list directly (NOT json.dumps!)
-    return all_table_rows
-
-# ============================================================================
-# 🔥 NEW: Document Type Detection (Fixes ECG garbage extraction)
+# 🔥 DOCUMENT TYPE DETECTION
 # ============================================================================
 
 def _detect_document_type(file_path: str) -> str:
-    """
-    Detect if PDF is a lab report, ECG, radiology image, etc.
-    Returns: 'lab_report', 'ecg_report', 'radiology_image', 'scanned_image', 'unknown'
-    """
     import fitz
     
     try:
@@ -1360,7 +1125,7 @@ def _detect_document_type(file_path: str) -> str:
         
         text_lower = full_text.lower()
         
-        # ===== ECG INDICATORS (HIGH CONFIDENCE) =====
+        # ECG indicators
         ecg_indicators = [
             '12-lead ecg', '12 lead ecg', 'ecg report', 'electrocardiogram',
             'physiologist\'s report', 'ecg quality', 'ecg on demand',
@@ -1373,15 +1138,13 @@ def _detect_document_type(file_path: str) -> str:
         ]
         
         ecg_count = sum(1 for ind in ecg_indicators if ind in text_lower)
-        
-        # Also check page titles/headers
         if any('ecg' in pt.lower() for pt in page_texts[:2]):
-            ecg_count += 3  # Boost score significantly
+            ecg_count += 3
         
         if ecg_count >= 3:
             return 'ecg_report'
         
-        # ===== RADIOLOGY/IMAGING INDICATORS =====
+        # Radiology indicators
         radiology_indicators = [
             'x-ray', 'xray', 'radiograph', 'ct scan', 'mri', 'magnetic resonance',
             'ultrasound', 'sonography', 'chest x-ray', 'cxr', 'radiology report',
@@ -1390,11 +1153,10 @@ def _detect_document_type(file_path: str) -> str:
         ]
         
         rad_count = sum(1 for ind in radiology_indicators if ind in text_lower)
-        
         if rad_count >= 2:
             return 'radiology_image'
         
-        # ===== LAB REPORT INDICATORS =====
+        # Lab report indicators
         lab_indicators = [
             'complete blood count', 'cbc', 'hemoglobin', 'haemoglobin', 'haematocrit',
             'hematocrit', 'wbc count', 'white blood cell', 'rbc count', 'red blood cell',
@@ -1407,14 +1169,11 @@ def _detect_document_type(file_path: str) -> str:
         ]
         
         lab_count = sum(1 for ind in lab_indicators if ind in text_lower)
-        
-        # Check for typical lab value patterns
         lab_value_patterns = re.findall(r'(\d+\.?\d*)\s*(g/dl|g%dl|mg/dl|mmol/l|iu/l|iu/ml|%|fl|pg)', text_lower)
         
         if lab_count >= 3 or len(lab_value_patterns) >= 5:
             return 'lab_report'
         
-        # ===== SCANNED IMAGE DETECTION =====
         if len(full_text.strip()) < 300:
             return 'scanned_image'
         
@@ -1424,6 +1183,364 @@ def _detect_document_type(file_path: str) -> str:
         print(f"   ⚠️ Document type detection failed: {e}")
         return 'unknown'
 
+
+# ============================================================================
+# 🔥 MICROSCOPIC EXTRACTION (NEW - For multi-page PDFs)
+# ============================================================================
+
+def extract_microscopic_universal(file_path: str) -> list:
+    """
+    v5.0 FINAL: Handles multi-column tables split across lines.
+    Pattern: Test name repeated 4x, then Sample: Urine, Value, Unit, Range
+    """
+    import fitz
+    
+    results = []
+    seen_keys = set()
+    
+    print("\n" + "="*70)
+    print("🔬 MICROSCOPIC EXTRACTION v5.0")
+    print("="*70 + "\n")
+    
+    micro_tests = {
+        'Pus Cells': {'unit': '/hpf', 'pattern': r'^pus\s*cells?$'},
+        'Epithelial Cells': {'unit': '/hpf', 'pattern': r'^epithelial\s*cells?$'},
+        'RBC (Microscopic)': {'unit': '/hpf', 'pattern': r'^rbc$'},
+        'Casts': {'unit': '/lpf', 'pattern': r'^casts?$'},
+        'Crystals': {'unit': '/hpf', 'pattern': r'^crystals?$'},
+        'Bacteria': {'unit': '/hpf', 'pattern': r'^bacteria?$'},
+        'Yeast': {'unit': '/hpf', 'pattern': r'^yeast$'},
+        'Mucus': {'unit': '', 'pattern': r'^mucus$'},
+    }
+    
+    def is_valid_value(text):
+        if not text:
+            return False
+        
+        text = str(text).strip()
+        
+        patterns = [
+            r'^\d+\s*[-–—]\s*\d+$',
+            r'^\d+$',
+            r'^(not\s+)?detected$',
+            r'^(none|nil|absent|present)$',
+            r'^(scarce|occasional|few|many)$',
+            r'^[1-4]\+$',
+            r'^normal$',
+        ]
+        
+        return any(re.match(p, text, re.IGNORECASE) for p in patterns)
+    
+    try:
+        doc = fitz.open(file_path)
+        
+        for page_num in range(len(doc)):
+            page = doc[page_num]
+            text = page.get_text()
+            lines = [l.strip() for l in text.split('\n')]
+            
+            has_micro = any(
+                kw in text.lower() 
+                for kw in ['microscopic examination', '/hpf', '/lpf']
+            )
+            
+            if not has_micro:
+                continue
+            
+            print(f"📍 Page {page_num + 1}: Scanning...")
+            
+            i = 0
+            while i < len(lines):
+                line = lines[i]
+                
+                matched_test = None
+                
+                for test_name, info in micro_tests.items():
+                    if re.match(info['pattern'], line, re.IGNORECASE):
+                        matched_test = test_name
+                        break
+                
+                if not matched_test:
+                    i += 1
+                    continue
+                
+                extracted_value = None
+                extracted_unit = None
+                extracted_range = None
+                
+                search_end = min(i + 10, len(lines))
+                
+                for j in range(i, search_end):
+                    current_line = lines[j]
+                    
+                    if current_line.lower() == 'sample: urine':
+                        continue
+                    
+                    if current_line.lower() in ['/hpf', '/lpf']:
+                        if extracted_value and not extracted_unit:
+                            extracted_unit = current_line
+                            continue
+                    
+                    if is_valid_value(current_line):
+                        if not extracted_value:
+                            extracted_value = current_line
+                        elif extracted_value and not extracted_range:
+                            extracted_range = current_line
+                
+                if extracted_value:
+                    if not extracted_unit:
+                        extracted_unit = micro_tests[matched_test]['unit']
+                    
+                    dedup_key = f"{matched_test}|{extracted_value.lower()}"
+                    
+                    if dedup_key not in seen_keys:
+                        seen_keys.add(dedup_key)
+                        
+                        results.append({
+                            'test': matched_test,
+                            'value': extracted_value.title(),
+                            'unit': extracted_unit,
+                            'range': extracted_range if extracted_range else '',
+                            'flag': '',
+                            '_source': f'p{page_num+1}'
+                        })
+                        
+                        print(f"   ✅ {matched_test:<25} {extracted_value:<15} {extracted_unit}")
+                
+                i += 8
+                continue
+            
+        doc.close()
+        
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        import traceback
+        traceback.print_exc()
+    
+    print(f"\n{'='*70}")
+    print(f"🎉 COMPLETE: {len(results)} microscopic tests extracted")
+    print(f"{'='*70}\n")
+    
+    if results:
+        for r in results:
+            print(f"  • {r['test']:<25} {r['value']:<15} {r['unit']:<6} [{r['_source']}]")
+        print()
+    
+    return results
+
+
+# ============================================================================
+# 🔥🔥🔥 MAIN EXTRACTION FUNCTION v17.0 - UNIFIED HYBRID
+# ============================================================================
+
+def extract_tables(file_path: str) -> list:
+    """
+    ✅✅✅ COMPLETE v17.0: Universal extractor for ALL PDF types
+    
+    Handles:
+    ✅ 1-page structured digital PDFs (Camelot + pdfplumber)
+    ✅ Scanned/image-based PDFs (OCR + Smart Parser v3.0)
+    ✅ ECG/Graphical PDFs (auto-detect + skip gracefully)
+    ✅ Multi-page lab reports (7+ pages, with microscopic extraction)
+    
+    ALWAYS returns: list of dicts (never empty string or None)
+    """
+    all_table_rows = []
+    extractor_stats = {}
+    is_scanned = False
+    doc_type = 'unknown'
+
+    try:
+        # ────────────────────────────────────────────────
+        # PHASE 1: Document Detection
+        # ────────────────────────────────────────────────
+        
+        is_scanned = detect_if_scanned(file_path)
+        print(f"📄 Detected: {'SCANNED PDF' if is_scanned else 'DIGITAL PDF'}")
+
+        doc_type = _detect_document_type(file_path)
+        print(f"📋 Document type: {doc_type.upper()}")
+
+        # ────────────────────────────────────────────────
+        # PHASE 2: Route based on document type
+        # ────────────────────────────────────────────────
+        
+        # Skip non-lab documents early
+        if doc_type == 'ecg_report':
+            print(f"\n{'='*60}")
+            print(f"⏭️  SKIPPING (ECG Document)")
+            print(f"{'='*60}\n")
+            return []
+            
+        elif doc_type == 'radiology_image':
+            print(f"\n{'='*60}")
+            print(f"⏭️  SKIPPING (Radiology Image)")
+            print(f"{'='*60}\n")
+            return []
+
+        # ────────────────────────────────────────────────
+        # PHASE 3: Extraction
+        # ────────────────────────────────────────
+        
+        print(f"\n   ✓ Proceeding with extraction...\n")
+
+        # Method 1: Camelot (for digital PDFs)
+        camelot_rows = [] if is_scanned else extract_with_camelot(file_path)
+        
+        # Method 2: pdfplumber (for digital PDFs)
+        pdfplumber_rows = [] if is_scanned else extract_with_pdfplumber(file_path)
+        
+        # Method 3: Text-based (for all PDFs, especially scanned)
+        text_based_rows = extract_text_based_tests(file_path, is_ocr=is_scanned)
+
+        extractor_stats = {
+            "camelot": len(camelot_rows),
+            "pdfplumber": len(pdfplumber_rows),
+            "text": len(text_based_rows),
+        }
+
+        # Merge all sources
+        seen = {}
+        for source_name, row_list in [
+            ("camelot", camelot_rows),
+            ("pdfplumber", pdfplumber_rows),
+            ("text", text_based_rows),
+        ]:
+            for row in row_list:
+                test_key = f"{row.get('test', '').lower().strip()}|{row.get('unit', '').lower().strip()}"
+                if test_key:
+                    if test_key not in seen:
+                        seen[test_key] = len(all_table_rows)
+                        all_table_rows.append(row)
+                    else:
+                        old_idx = seen[test_key]
+                        existing = all_table_rows[old_idx]
+                        if row.get("range") and not existing.get("range"):
+                            all_table_rows[old_idx] = row
+                        elif row.get("flag") and not existing.get("flag"):
+                            all_table_rows[old_idx]["flag"] = row["flag"]
+
+    except Exception as e:
+        print(f"⚠️ Table extraction failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return []
+    
+    finally:
+        gc.collect()
+
+    # ────────────────────────────────────────────────
+    # PHASE 4: Post-processing & Cleanup
+    # ────────────────────────────────────────────────
+    
+    # Clean up garbage entries
+    final_results = []
+    final_seen = set()
+    
+    for r in all_table_rows:
+        test_name = r.get('test', '')
+        
+        # Skip invalid entries
+        if not test_name or len(test_name) > 100 or '\n' in test_name:
+            continue
+        if 'diagnosis' in test_name.lower() and len(test_name) > 50:
+            continue
+        
+        key = f"{test_name.lower()}|{r.get('unit','').lower()}|{r.get('value','').lower()}"
+        
+        if key not in final_seen:
+            final_seen.add(key)
+            final_results.append(r)
+
+    # Fix corrupted numbers (e.g., "8775" → "87.75")
+    for r in final_results:
+        val = r.get('value', '')
+        if isinstance(val, str) and re.match(r'^\d{4,}$', val):
+            # Try inserting decimal before last 2 digits
+            fixed = val[:-2] + '.' + val[-2:]
+            try:
+                num = float(fixed)
+                if 0 < num < 10000:
+                    r['value'] = fixed
+            except:
+                pass
+
+    # ────────────────────────────────────────────────
+    # PHASE 5: Microscopic fallback (for multi-page PDFs)
+    # ────────────────────────────────────────────────
+    
+    # Check if we need microscopic data
+    has_micro = any(
+        kw in str(r).lower() 
+        for r in final_results
+        for kw in ['pus cells', 'epithelial cells', 'casts', 'crystals', 'bacteria']
+    )
+    
+    # Only run fallback if we have a multi-page document AND missing microscopic data
+    # OR if we have very few total tests (might be missing data)
+    if (len(final_results) < 15 and doc_type in ['lab_report', 'unknown']) or \
+       (not has_micro and doc_type == 'lab_report'):
+        
+        print(f"\n{'='*70}")
+        print(f"🔬 Running microscopic fallback extraction...")
+        print(f"{'='*70}\n")
+        
+        try:
+            micro_results = extract_microscopic_universal(file_path)
+            
+            if micro_results:
+                micro_seen = {
+                    f"{r['test'].lower()}|{r.get('unit','').lower()}"
+                    for r in final_results
+                }
+                
+                added = 0
+                for mr in micro_results:
+                    key = f"{mr['test'].lower()}|{mr.get('unit','').lower()}"
+                    if key not in micro_seen:
+                        final_results.append(mr)
+                        micro_seen.add(key)
+                        added += 1
+                
+                if added > 0:
+                    print(f"   🎉 Added {added} microscopic tests!")
+                    
+        except Exception as micro_err:
+            print(f"   ⚠️ Microscopic fallback error: {micro_err}")
+
+    # ────────────────────────────────────────────────
+    # SUMMARY
+    # ────────────────────────────────────────────────
+    
+    print(f"\n{'=' * 70}")
+    print(f"📊 EXTRACTION SUMMARY ({'SCANNED' if is_scanned else 'DIGITAL'})")
+    print(f"{'=' * 70}")
+
+    if not is_scanned:
+        print(f"   Camelot:     {extractor_stats.get('camelot', 0):>4} rows")
+        print(f"   pdfplumber:  {extractor_stats.get('pdfplumber', 0):>4} rows")
+    print(f"   Text-based:  {extractor_stats.get('text', 0):>4} rows")
+    print(f"   Microscopic: {sum(1 for r in final_results if any(kw in r['test'].lower() for kw in ['pus cells', 'epithelial', 'casts']))} tests")
+    print(f"{'=' * 70}")
+    print(f"   TOTAL: {len(final_results)} unique tests")
+
+    flagged = [r for r in final_results if r.get("flag")]
+    if flagged:
+        print(f"\n   ⚠️  ABNORMAL: {len(flagged)} tests flagged")
+        for r in flagged[:8]:
+            print(f"      → {r['test']}: {r['value']} {r.get('unit','')} [{r['flag']}]")
+
+    if not final_results:
+        print("\n❌ No valid lab data extracted")
+        return []
+
+    return final_results
+
+
+# ============================================================================
+# 🔥 TEST / DEMO
+# ============================================================================
+
 if __name__ == "__main__":
     import sys
 
@@ -1432,15 +1549,31 @@ if __name__ == "__main__":
         
         if isinstance(result, list) and result:
             print("\n📋 EXTRACTED DATA:")
+            print(f"{'-'*90}")
+            print(f"{'Test Name':<40} {'Value':<12} {'Unit':<10} {'Range':<18} {'Flag'}")
+            print(f"{'-'*90}")
+            
             for row in result:
                 flag_str = f" [{row['flag']}]" if row.get('flag') else ""
                 range_str = f" (Ref: {row['range']})" if row.get('range') else ""
                 unit_str = f" {row['unit']}" if row.get('unit') else ""
-                print(f"  • {row['test']}: {row['value']}{unit_str}{range_str}{flag_str}")
+                print(f"  • {row['test']:<38} {row['value']:<12}{unit_str:<10}{row.get('range', ''):<18}{row.get('flag', '')}")
+            
+            print(f"{'-'*90}")
+            print(f"\nTotal: {len(result)} tests extracted")
+            
+            # Show microscopic specifically
+            micro = [r for r in result if any(kw in r['test'].lower() for kw in 
+                   ['pus cells', 'epithelial', 'casts', 'crystals', 'bacteria'])]
+            if micro:
+                print(f"\n🔬 MICROSCOPIC TESTS ({len(micro)}):")
+                for m in micro:
+                    print(f"  ★ {m['test']}: {m['value']} {m.get('unit','')}")
+        
         elif isinstance(result, str):
             try:
                 data = json.loads(result)
-                print("\n📋 EXTRACTED DATA (parsed from legacy string):")
+                print("\n📋 EXTRACTED DATA:")
                 for row in data:
                     flag_str = f" [{row['flag']}]" if row.get('flag') else ""
                     range_str = f" (Ref: {row['range']})" if row.get('range') else ""
@@ -1451,3 +1584,4 @@ if __name__ == "__main__":
                 print(f"   Preview: {str(result)[:500]}")
     else:
         print("Usage: python table_extractor.py <pdf_path>")
+        print("\nUniversal medical lab report extractor.")

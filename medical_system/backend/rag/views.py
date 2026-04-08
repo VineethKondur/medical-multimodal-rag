@@ -20,6 +20,7 @@ import uuid
 import re
 import json
 import time
+import fitz
 from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
 from django.core.cache import cache
@@ -1575,11 +1576,66 @@ def upload_and_index(request):
                         traceback.print_exc()
                 
                 # ================================================================
-                # Normal table extraction (for digital PDFs)
+                # 🔥 CROSS-PLATFORM TIMEOUT HANDLING (Windows/Mac/Linux)
                 # ================================================================
-                raw_extraction_result = extract_tables(file_path)
+                
+                import threading
+                import time
+                
+                # Count pages first to set appropriate timeout
+                doc_for_timeout = fitz.open(file_path)
+                page_count_for_timeout = len(doc_for_timeout)
+                doc_for_timeout.close()
+                
+                # Dynamic timeout: 30 seconds base + 10 seconds per page, max 3 minutes
+                timeout_seconds = min(180, max(60, 30 + (page_count_for_timeout * 10)))
+                
+                print(f"   ⏱️ Setting extraction timeout: {timeout_seconds} seconds "
+                      f"({page_count_for_timeout} pages detected)")
+                
+                extraction_result_container = {'result': None, 'error': None}
+                extraction_started = [time.time()]
+                
+                def run_extraction():
+                    """The actual extraction logic"""
+                    try:
+                        extraction_result_container['result'] = extract_tables(file_path)
+                    except Exception as e:
+                        extraction_result_container['error'] = e
+                
+                # Start extraction in background thread
+                extraction_thread = threading.Thread(target=run_extraction)
+                extraction_thread.daemon = True
+                extraction_thread.start()
+                
+                # Wait with timeout
+                extraction_thread.join(timeout=timeout_seconds)
+                
+                # Check result
+                if extraction_thread.is_alive():
+                    print(f"\n   ⚠️ TIMEOUT: Processing exceeded {timeout_seconds} seconds")
+                    print(f"   ↳ Attempting graceful recovery...")
+                    
+                    if extraction_result_container['result'] is not None:
+                        raw_extraction_result = extraction_result_container['result']
+                        print(f"   ✓ Using partial data ({len(raw_extraction_result)} items)")
+                    else:
+                        raw_extraction_result = []
+                        print(f"   ⚠️ No partial data available (extraction still in progress)")
+                        
+                elif extraction_result_container.get('error'):
+                    # Extraction failed with error (not timeout)
+                    raise extraction_result_container['error']
+                    
+                else:
+                    # Completed successfully within time limit
+                    raw_extraction_result = extraction_result_container['result']
+                    elapsed = time.time() - extraction_started[0]
+                    print(f"   ✅ Extraction completed in {elapsed:.1f} seconds")
+                
                 print(f"   extract_tables() returned type: {type(raw_extraction_result)}")
-                print(f"   extract_tables() value preview: {str(raw_extraction_result)[:150] if raw_extraction_result else 'None'}...")
+                print(f"   extract_tables() value preview: "
+                      f"{str(raw_extraction_result)[:150] if raw_extraction_result else 'None'}...")
                 
                 # ================================================================
                 # DEFENSIVE TYPE HANDLING - Handle both old & new return types
@@ -1603,10 +1659,12 @@ def upload_and_index(request):
                             print(f"   ✓ Successfully parsed JSON string into list ({len(parsed_data)} items)")
                             raw_table_json = parsed_data
                             extraction_success = True
+                            
                         elif isinstance(parsed_data, dict):
                             print(f"   ⚠️ Parsed as dict (not list), extracting values...")
                             raw_table_json = list(parsed_data.values()) if len(parsed_data) > 0 else []
                             extraction_success = True
+                            
                         else:
                             print(f"   ✗ Parsed as unexpected type: {type(parsed_data)}")
                             raw_table_json = []
@@ -1630,9 +1688,11 @@ def upload_and_index(request):
                             print(f"      Sample: {str(first_item)[:150]}")
                             raw_table_json = raw_extraction_result
                             extraction_success = True
+                            
                         else:
                             print(f"      ⚠️ Items are {type(first_item)}, not dict")
                             raw_table_json = []
+                            
                     else:
                         print(f"      ℹ Empty list returned (no tables found)")
                         raw_table_json = []
@@ -1647,7 +1707,7 @@ def upload_and_index(request):
                 import traceback
                 traceback.print_exc()
                 raw_table_json = []
-
+                    
             # Final validation summary
             print(f"\n{'─'*60}")
             print(f"📊 PHASE 3 SUMMARY:")
