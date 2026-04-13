@@ -347,21 +347,75 @@ class VisionModelWrapper:
         self.device = "cpu"  # Will be set on load
     
     def ensure_loaded(self):
-        """Load model if not already loaded (lazy loading)"""
+        """Load model if not already loaded (lazy loading) WITH VRAM SAFETY"""
         if self.is_loaded:
             return
         
         try:
             import torch
+            import gc
             
             # Determine device
             device = self.config.vlm_device
             if device == "auto":
                 device = "cuda" if torch.cuda.is_available() else "cpu"
             
+            # ================================================================
+            # 🔥 NEW: VRAM Safety Check Before Loading Moondream2
+            # ================================================================
+            if device == "cuda":
+                logger.info("🔍 Checking VRAM availability before loading Moondream2...")
+                
+                # Get current GPU memory state
+                if torch.cuda.is_available():
+                    allocated = torch.cuda.memory_allocated(0) / 1e9  # GB
+                    cached = torch.cuda.memory_reserved(0) / 1e9  # GB
+                    total = torch.cuda.get_device_properties(0).total_mem / 1e9  # GB
+                    free = total - cached  # Approximate free memory
+                    
+                    logger.info(f"   GPU Memory: {allocated:.2f}GB allocated, "
+                            f"{cached:.2f}GB reserved, ~{free:.2f}GB free (total: {total:.1f}GB)")
+                    
+                    # Moondream2 needs about 2-2.5GB VRAM
+                    MOONDREAM_VRAM_NEEDED_GB = 2.5
+                    SAFETY_BUFFER_GB = 0.5
+                    
+                    if free < MOONDREAM_VRAM_NEEDED_GB + SAFETY_BUFFER_GB:
+                        logger.warning(f"⚠️ Insufficient VRAM ({free:.1f}GB free, need "
+                                    f"{MOONDREAM_VRAM_NEEDED_GB + SAFETY_BUFFER_GB:.1f}GB)")
+                        logger.info("   🧹 Clearing CUDA cache to free memory...")
+                        
+                        # Aggressive cleanup
+                        del self.model, self.tokenizer  # Just in case
+                        self.model = None
+                        self.tokenizer = None
+                        
+                        torch.cuda.empty_cache()
+                        gc.collect()
+                        
+                        import time
+                        time.sleep(2)  # Wait for cleanup
+                        
+                        # Re-check
+                        new_free = total - (torch.cuda.memory_reserved(0) / 1e9)
+                        if new_free < MOONDREAM_VRAM_NEEDED_GB:
+                            logger.warning(f"❌ Still insufficient VRAM after cleanup ({new_free:.1f}GB)")
+                            logger.info("   💻 Falling back to CPU mode")
+                            device = "cpu"
+                        else:
+                            logger.info(f"   ✅ Freed enough space ({new_free:.1f}GB now available)")
+                    else:
+                        logger.info(f"   ✅ Sufficient VRAM available ({free:.1f}GB free)")
+                else:
+                    logger.warning("⚠️ CUDA not available, using CPU")
+                    device = "cpu"
+            
             self.device = device
             logger.info(f"Loading Moondream2 on {device}...")
             
+            # ================================================================
+            # REST OF ORIGINAL LOADING CODE (UNCHANGED)
+            # ================================================================
             from transformers import AutoModelForCausalLM, AutoTokenizer
             
             # Load tokenizer
@@ -379,17 +433,17 @@ class VisionModelWrapper:
                 trust_remote_code=True,
             ).to(device)
             
-            self.model.eval()  # Set to evaluation mode (not training)
+            self.model.eval()  # Set to evaluation mode
             self.is_loaded = True
             
             logger.info(f"✅ Moondream2 loaded successfully on {device}")
             
             # Log memory usage
-            if torch.cuda.is_available():
+            if torch.cuda.is_available() and device == "cuda":
                 allocated = torch.cuda.memory_allocated(0) / 1e9
                 cached = torch.cuda.memory_reserved(0) / 1e9
-                logger.info(f"   GPU Memory: {allocated:.2f} GB allocated, {cached:.2f} GB cached")
-                
+                logger.info(f"   GPU Memory after load: {allocated:.2f}GB allocated, {cached:.2f}GB cached")
+            
         except ImportError as e:
             logger.error(f"Missing dependency: {e}")
             raise ImportError(
@@ -399,7 +453,7 @@ class VisionModelWrapper:
         except Exception as e:
             logger.error(f"Failed to load Moondream2: {e}")
             raise
-    
+
     def extract_from_image(
         self, 
         image: Image.Image, 
@@ -594,9 +648,11 @@ Return ONLY valid JSON:
         return None
     
     def unload(self):
-        """Unload model from memory to free resources"""
+        """Unload model from memory to free resources (ENHANCED VERSION)"""
         if self.is_loaded and self.model is not None:
             try:
+                logger.info("🧹 Unloading Moondream2 and freeing memory...")
+                
                 # Delete model and tokenizer
                 del self.model
                 if self.tokenizer:
@@ -614,13 +670,12 @@ Return ONLY valid JSON:
                     import torch
                     if torch.cuda.is_available():
                         torch.cuda.empty_cache()
-                        logger.info("CUDA cache cleared")
+                        logger.info("✅ CUDA cache cleared")
                 
-                logger.info("Moondream2 unloaded, memory freed")
+                logger.info("✅ Moondream2 unloaded, memory freed")
                 
             except Exception as e:
                 logger.warning(f"Error unloading model: {e}")
-
 
 # ============================================================================
 # ⚡ GROQ LLM CLIENT (Uses Your Existing Setup!)

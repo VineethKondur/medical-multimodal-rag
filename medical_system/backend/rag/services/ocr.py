@@ -9,25 +9,81 @@ import os
 warnings.filterwarnings('ignore', category=DeprecationWarning)
 warnings.filterwarnings('ignore', message='ARC4 has been moved')
 
-# Initialize the OCR reader once to avoid reloading the model on every call.
-# This is a heavy object.
-print("Initializing EasyOCR Reader...")
-try:
-    # 🔥 GPU ENABLED - Set to True for CUDA support. Falls back to CPU if GPU unavailable.
-    reader = easyocr.Reader(['en'], gpu=True, verbose=False) 
-    print("✓ EasyOCR Reader initialized successfully (GPU enabled).")
-except Exception as e:
-    reader = None
-    print(f"⚠️  GPU initialization failed or CUDA not available. Falling back to CPU...")
-    print(f"   Error: {e}")
+# ============================================
+# NEW MEMORY-SAFE VERSION:
+# ============================================
+print("Initializing EasyOCR Reader (memory-safe mode)...")
+def initialize_ocr_reader():
+    """
+    Initialize EasyOCR with automatic GPU/CPU detection.
+    
+    SMART LOGIC:
+    - Checks VRAM availability before using GPU
+    - Leaves 1.5GB buffer for system + other models (Moondream2)
+    - Falls back to CPU if insufficient VRAM
+    """
+    global reader
+    
     try:
-        # Fallback to CPU if GPU fails
-        reader = easyocr.Reader(['en'], gpu=False, verbose=False)
-        print("✓ EasyOCR Reader initialized successfully (CPU mode).")
-    except Exception as cpu_error:
-        print(f"CRITICAL: Failed to initialize EasyOCR Reader: {cpu_error}")
-        print("OCR functionality will be disabled. Please ensure you have installed PyTorch and EasyOCR correctly.")
+        import torch
+        
+        # Check GPU availability AND free memory
+        gpu_available = False
+        gpu_reason = ""
+        
+        if torch.cuda.is_available():
+            # Get GPU properties
+            device_props = torch.cuda.get_device_properties(0)
+            total_vram_gb = device_props.total_mem / 1e9  # Convert bytes to GB
+            
+            # Try to get free memory (may not work on all systems)
+            try:
+                free_vram_gb = (torch.cuda.mem_get_info()[0]) / 1e9
+            except:
+                free_vram_gb = total_vram_gb * 0.5  # Estimate 50% free
+            
+            # Require at least 1.5GB free VRAM for EasyOCR GPU mode
+            MIN_VRAM_NEEDED_GB = 1.5
+            
+            if free_vram_gb >= MIN_VRAM_NEEDED_GB:
+                gpu_available = True
+                gpu_reason = f"GPU OK ({free_vram_gb:.1f}GB free)"
+            else:
+                gpu_reason = f"Insufficient VRAM ({free_vram_gb:.1f}GB free, need {MIN_VRAM_NEEDED_GB}GB)"
+        else:
+            gpu_reason = "CUDA not available"
+        
+        # Make decision
+        if gpu_available:
+            print(f"🎮 Attempting GPU mode... ({gpu_reason})")
+            reader = easyocr.Reader(['en'], gpu=True, verbose=False)
+            print(f"✅ EasyOCR Reader initialized successfully (GPU enabled)")
+        else:
+            print(f"💻 Using CPU mode... ({gpu_reason})")
+            reader = easyocr.Reader(['en'], gpu=False, verbose=False)
+            print(f"✅ EasyOCR Reader initialized successfully (CPU mode)")
+        
+        return True
+        
+    except ImportError as e:
+        print(f"❌ Missing dependency: {e}")
+        reader = None
+        return False
+        
+    except Exception as e:
+        print(f"⚠️ GPU failed, trying CPU: {e}")
+        try:
+            reader = easyocr.Reader(['en'], gpu=False, verbose=False)
+            print(f"✅ EasyOCR Reader initialized (CPU fallback)")
+            return True
+        except Exception as cpu_err:
+            print(f"❌ CPU also failed: {cpu_err}")
+            reader = None
+            return False
 
+# Initialize on module load
+reader = None
+initialize_ocr_reader()
 
 def extract_text_with_ocr(file_path: str) -> str:
     """

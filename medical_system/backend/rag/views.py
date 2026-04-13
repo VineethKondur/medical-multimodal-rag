@@ -30,6 +30,19 @@ from .services.clinical_notes import extract_clinical_data, normalize_lab_mentio
 from .services.chart_interpreter import interpret_chart
 from rag.services.smart_router import SmartRouter, process_medical_document
 
+# ============================================================
+# 🆕 NEW: Consolidated ECG Utilities (from ecg_utils.py)
+# ============================================================
+from rag.services.ecg_utils import (
+    calculate_ecg_status,
+    parse_flattened_ecg_data,
+    mine_text_from_graph_result,
+    parse_measurements_dict,
+    extract_structured_ecg_data,
+    flatten_ecg_structure,
+    find_measurements_dict_recursive
+)
+
 MEDIA_DIR = "media"
 os.makedirs(MEDIA_DIR, exist_ok=True)
 
@@ -311,20 +324,99 @@ def get_light_user_guidance(context=None):
 # ===========================================================================
 
 def clean_numeric_value(value_str):
+    """
+    UNIVERSAL VALUE CLEANER v3.0
+    
+    ✅ Handles ALL medical value formats:
+    - Numeric: "12.6", "5.4", "88.0"
+    - With flags: "5.600 H", "Reactive 1:64"
+    - Text: "Not Detected", "Normal", "Clear"
+    - Special: "A+", "Rh Positive", "1:64"
+    
+    Returns:
+    - Clean number string for numeric values
+    - Original text for valid text results
+    - None for garbage
+    """
     if not value_str:
         return None
-    cleaned = str(value_str).strip()
-    cleaned = re.sub(r'(\d),(\d)', r'\1\2', cleaned)
-    cleaned = re.sub(r'^[^\d\-\.]*', '', cleaned)
-    cleaned = re.sub(r'[^\d\-\.]*$', '', cleaned)
     
-    range_concat = re.match(r'^(\d+\.?\d*)(\d+\.?\d*\s*[-–]\s*\d+\.?\d*)$', cleaned)
-    if range_concat:
-        return range_concat.group(1)
+    original = str(value_str).strip()
+    cleaned = original.lower().strip()
     
-    leading_num = re.match(r'^(\d+\.?\d*)', cleaned)
-    if leading_num:
-        return leading_num.group(1)
+    # ===== LIST OF VALID TEXT RESULTS (Return As-Is) =====
+    valid_preserved_values = [
+        # Standard results
+        'not detected', 'detected', 'negative', 'non reactive', 'non-reactive',
+        'positive', 'reactive', 'pos', 'neg', 'normal', 'abnormal',
+        
+        # Physical appearance
+        'clear', 'cloudy', 'turbid', 'translucent', 'pale yellow', 'yellow',
+        'straw colored', 'amber', 'colorless', 'slightly turbid', 'moderately turbid',
+        
+        # Presence
+        'absent', 'present', 'nil', 'none', 'no growth', 'growth seen',
+        'trace', 'small', 'moderate', 'large', 'scanty',
+        
+        # Serology (preserve full titer!)
+        'reactive 1:64', 'reactive 1:128', 'reactive 1:32',
+        'reactive 1:16', 'reactive 1:8', 'reactive 1:4', 'reactive 1:2',
+        'reactive 1:1', 'non reactive', 'non-reactive',
+        'equivocal', 'borderline', 'indeterminate',
+        
+        # Blood group (preserve exactly!)
+        'a', 'b', 'o', 'ab', 'a+', 'b+', 'o+', 'ab+',
+        'a-', 'b-', 'o-', 'ab-',
+        'rh positive', 'rh negative', 'rh+', 'rh-',
+        
+        # Grading
+        '1+', '2+', '3+', '4+',
+        
+        # Other
+        'seen', 'not seen', 'plenty', 'rare', 'few', 'many',
+        'within normal limits', 'wnl', 'adequate', 'inadequate',
+    ]
+    
+    # Direct match - preserve original formatting
+    if cleaned in valid_preserved_values:
+        return original.title() if len(original) < 20 else original
+    
+    # Pattern: "Reactive 1:X" or "Non Reactive" (case insensitive)
+    if re.match(r'^(?:reactive|non.?reactive)\s*[\d:.]+$', cleaned, re.IGNORECASE):
+        return original.strip()
+    
+    # Pattern: Blood group with Rh (e.g., "A Positive")
+    if re.match(r'^[aboab][\+-]?\s*(?:positive|negative)?$', cleaned, re.IGNORECASE):
+        return original.upper() if len(original) <= 3 else original.title()
+    
+    # Pattern: Grading scale (1+, 2+, etc.)
+    if re.match(r'^[1-4]\+$', cleaned):
+        return original.strip()
+    
+    # ===== NUMERIC EXTRACTION =====
+    no_commas = re.sub(r'(\d),(\d)', r'\1\2', original)
+    num_match = re.match(r'^([\d.]+)', no_commas)
+    
+    if num_match:
+        extracted_num = num_match.group(1)
+        try:
+            val = float(extracted_num)
+            if -1000000 < val < 1000000:
+                if '.' in extracted_num:
+                    return extracted_num.rstrip('0').rstrip('.') if '.' in extracted_num else extracted_num
+                else:
+                    return extracted_num
+            else:
+                return None
+        except ValueError:
+            pass
+    
+    # Last resort: check if it could be a valid short text result
+    if len(original) <= 30 and re.search(r'[a-zA-Z]', original):
+        suspicious = ['http', 'www', '@', '.com', 'page', 'report', 'note']
+        if not any(s in cleaned for s in suspicious):
+            return original
+    
     return None
 
 
@@ -382,54 +474,155 @@ def fuzzy_match_score(query_str, test_name):
 # HELPERS — STATUS / SEVERITY DETECTION
 # ===========================================================================
 
+import re
+
 def detect_status(value, ref_range):
-    cleaned_value = clean_numeric_value(value)
+    """
+    UNIVERSAL STATUS DETECTOR v3.1
+
+    ✅ Determines HIGH / LOW / NORMAL / BORDERLINE / UNKNOWN
+    - Numeric values with ranges (with borderline detection)
+    - Text results (Not Detected, Positive, etc.)
+    """
+
+    if not value:
+        return "UNKNOWN"
+
+    value_str = str(value).strip()
+    val_lower = value_str.lower().strip()
+
+    # ===== TEXT-BASED STATUS DETECTION =====
+    is_numeric = bool(re.search(r'[\d.]+', value_str)) and not re.match(r'^[a-zA-Z\s]+$', value_str)
+
+    if not is_numeric or val_lower in [
+        'not detected', 'detected', 'negative', 'positive',
+        'reactive', 'non reactive', 'non-reactive',
+        'normal', 'abnormal', 'absent', 'present'
+    ]:
+
+        clearly_abnormal_high = [
+            'reactive', 'positive', 'detected', 'present', 'abnormal',
+            'growth seen', 'plenty', 'many', 'large', 'moderate',
+            'cloudy', 'turbid', 'hemolyzed', 'icteric', 'lipemic',
+        ]
+
+        clearly_abnormal_low = [
+            'not detected', 'absent', 'negative', 'non reactive', 'non-reactive',
+            'nil', 'none', 'no growth', 'rare', 'scanty', 'small', 'trace',
+        ]
+
+        clearly_normal = [
+            'normal', 'within normal limits', 'wnl', 'clear', 'pale yellow',
+            'straw colored', 'amber', 'colorless', 'translucent', 'adequate',
+        ]
+
+        if val_lower in clearly_abnormal_high:
+            return "HIGH"
+        elif val_lower in clearly_abnormal_low:
+            return "LOW"
+        elif val_lower in clearly_normal:
+            return "NORMAL"
+        elif val_lower in ['equivocal', 'borderline', 'indeterminate']:
+            return "BORDERLINE"
+        else:
+            return "UNKNOWN"
+
+    # ===== NUMERIC STATUS DETECTION =====
+    cleaned_value = clean_numeric_value(value_str)
     if not cleaned_value:
         return "UNKNOWN"
+
     try:
-        value = float(cleaned_value)
-    except ValueError:
+        value_float = float(cleaned_value)
+    except (ValueError, TypeError):
         return "UNKNOWN"
 
-    if not ref_range or str(ref_range).lower().strip() in ["nan", "-", "", "not available"]:
+    if not ref_range:
         return "UNKNOWN"
 
-    r = str(ref_range).lower().strip().replace(" ", "")
-    numbers = re.findall(r"(\d+\.?\d*)", r)
+    ref_str = str(ref_range).lower().strip()
+    if ref_str in ['not detected', 'normal', 'negative', 'non reactive', 'nan', '-', '', 'n/a']:
+        return "UNKNOWN"
+
+    ref_clean = ref_str.replace(' ', '')
+    numbers = re.findall(r"(\d+\.?\d*)", ref_clean)
+
     if not numbers:
         return "UNKNOWN"
 
     try:
-        if re.search(r"[\-–]", r) and len(numbers) >= 2:
+        # ===== RANGE BASED =====
+        if re.search(r"[\-–]", ref_clean) and len(numbers) >= 2:
             low, high = float(numbers[0]), float(numbers[1])
-            if value < low:
+
+            # ✅ BORDERLINE LOGIC (5% or min 0.5 units)
+            range_width = high - low
+            threshold = max(range_width * 0.05, 0.5)
+
+            if value_float < low - threshold:
                 return "LOW"
-            elif value > high:
+            elif value_float > high + threshold:
                 return "HIGH"
-            return "NORMAL"
-        elif "<" in r:
-            return "HIGH" if value > float(numbers[0]) else "NORMAL"
-        elif ">" in r:
-            return "LOW" if value < float(numbers[0]) else "NORMAL"
-    except (ValueError, IndexError):
-        pass
+            elif abs(value_float - low) <= threshold or abs(value_float - high) <= threshold:
+                return "BORDERLINE"
+            else:
+                return "NORMAL"
 
-    return "UNKNOWN"
+        # ===== LESS THAN =====
+        elif "<" in ref_str:
+            threshold = float(numbers[0])
+            if value_float > threshold:
+                return "HIGH"
+            elif abs(value_float - threshold) <= 0.05 * threshold:
+                return "BORDERLINE"
+            else:
+                return "NORMAL"
 
+        # ===== GREATER THAN =====
+        elif ">" in ref_str:
+            threshold = float(numbers[0])
+            if value_float < threshold:
+                return "LOW"
+            elif abs(value_float - threshold) <= 0.05 * threshold:
+                return "BORDERLINE"
+            else:
+                return "NORMAL"
+
+        else:
+            return "UNKNOWN"
+
+    except (ValueError, IndexError, TypeError):
+        return "UNKNOWN"
 
 def detect_status_with_fallback(test_name, value, ref_range):
-    if ref_range and str(ref_range).lower().strip() in ["nan", "-", "", "n/a", "not available", "none", "na"]:
+    """
+    MERGED UNIVERSAL DETECTION WITH FALLBACK RANGES.
+    
+    ✅ Single unified function (NO MORE DUPLICATES!)
+    - Uses universal text/numeric detection first
+    - Falls back to known lab ranges if needed
+    """
+    invalid_ranges = ['nan', '-', '', 'n/a', 'not available', 'none', 'na', 'null', 'not detected', 'normal']
+    
+    if ref_range and str(ref_range).lower().strip() in invalid_ranges:
         ref_range = None
-
-    if ref_range:
-        return detect_status(value, ref_range), None
     
-    normalized_test = normalize_test_name(test_name)
-    for key, fallback_range in FALLBACK_RANGES.items():
-        if normalize_test_name(key) in normalized_test:
-            return detect_status(value, fallback_range), fallback_range
+    primary_status = detect_status(value, ref_range)
     
-    return detect_status(value, ref_range), None
+    if primary_status in ["HIGH", "LOW", "NORMAL"]:
+        return primary_status, ref_range
+    
+    # Try fallback ranges
+    if not ref_range:
+        normalized_test = normalize_test_name(test_name)
+        for key, fallback_range in FALLBACK_RANGES.items():
+            if normalize_test_name(key) in normalized_test:
+                fallback_status = detect_status(value, fallback_range)
+                if fallback_status != "UNKNOWN":
+                    return fallback_status, fallback_range
+                break
+    
+    return primary_status, ref_range
 
 
 def calculate_severity(value, ref_range, row_status):
@@ -546,90 +739,170 @@ VALID_SEROLOGICAL_TESTS = [
     "urine routine", "glucose", "protein", "ketones", "blood", "bilirubin", "urobilinogen", "nitrite"
 ]
 
-
 def is_valid_test_row(test_name, value, unit="", reference_range=""):
-    """Robust validation - allow real tests, reject metadata/garbage."""
+    """
+    UNIVERSAL MEDICAL TEST VALIDATOR v4.0
+    
+    ✅ ENHANCED: Now protects critical CBC parameters from being filtered out
+    """
+    
+    # ===== BASIC VALIDATION =====
     if not test_name or not value:
         return False
     
-    test = str(test_name).lower().strip()
+    test = str(test_name).strip()
     value_str = str(value).strip()
-    val_lower = value_str.lower()
-
-    # Allow categorical results
-    is_categorical = val_lower in VALID_CATEGORICAL_RESULTS
-    if re.match(r'^1:\d+$', value_str):
-        is_categorical = True
-    if re.match(r'^[1-4]\+$', value_str):
-        is_categorical = True
-    if any(val_lower.startswith(cat) for cat in ["reactive", "non reactive", "non-reactive", "positive", "negative", "not detected", "detected"]):
-        is_categorical = True
-
-    is_numeric = bool(re.search(r'\d', value_str))
-    if not is_numeric and not is_categorical:
+    test_lower = test.lower().strip()
+    
+    if len(test) < 2 or len(test) > 100:
         return False
-
-    # Categorical only for serological/urine tests
-    if is_categorical and not is_numeric:
-        is_sero = any(s in test for s in VALID_SEROLOGICAL_TESTS)
-        is_sero = is_sero or any(kw in test for kw in ["test", "screen", "panel", "card", "rapid"])
-        if not is_sero:
+    
+    # ===== ✅ NEW: PROTECT CRITICAL CBC/METABOLIC PARAMETERS =====
+    protected_tests = {
+        'mchc': {'pattern': r'mchc?'},
+        'mpv': {'pattern': r'mpv?'},
+        'pdw': {'pattern': r'pdw?'},
+        'pct': {'pattern': r'pct'},
+        'rdw-sd': {'pattern': r'rdw.?sd'},
+        'rdw-cv': {'pattern': r'rdw.?cv'},
+        'immature platelet fraction': {'pattern': r'immature.*platelet'},
+        'plateletcrit': {'pattern': r'plateletcrit'},
+        'direct bilirubin': {'pattern': r'direct.*bilirubin'},
+        'indirect bilirubin': {'pattern': r'indirect.*bilirubin'},
+        'globulin': {'pattern': r'globulin'},
+        'a/g ratio': {'pattern': r'a.?g.*ratio'},
+        'bun/creatinine ratio': {'pattern': r'bun.*creatinine'},
+        'microalbumin': {'pattern': r'microalbumin'},
+        'cystatin c': {'pattern': r'cystatin'},
+        'ldl/hdl ratio': {'pattern': r'ldl.*hdl'},
+        'non-hdl cholesterol': {'pattern': r'non.?hdl'},
+        'tibc': {'pattern': r'tibc'},
+        'transferrin saturation': {'pattern': r'transferrin.*sat'},
+        'd-dimer': {'pattern': r'd.?dimer'},
+        'hs-crp': {'pattern': r'hs.?crp'},
+        'specific gravity (urine)': {'pattern': r'specific.*gravity.*urine'},
+        'urine specific gravity': {'pattern': r'urine.*specific.*gravity'},
+    }
+    
+    test_normalized = re.sub(r'[\s\-_\.,()]', '', test_lower)
+    
+    for protected_name, info in protected_tests.items():
+        protected_norm = re.sub(r'[\s\-_\.,()]', '', protected_name.lower())
+        
+        if re.search(info['pattern'], test_lower, re.IGNORECASE) or protected_norm in test_normalized:
+            if re.search(r'\d', value_str):
+                try:
+                    val = float(re.sub(r'[^\d.\-]', '', value_str))
+                    if -1000 < val < 1000000:
+                        print(f"   ✅ PROTECTED TEST ALLOWED: {test}={value}")
+                        return True
+                except ValueError:
+                    pass
+    
+    # ===== CONTINUE WITH EXISTING VALIDATION LOGIC =====
+    has_numbers = bool(re.search(r'\d', value_str))
+    
+    valid_text_results = {
+        'not detected', 'detected', 'negative', 'non reactive', 'non-reactive',
+        'positive', 'reactive', 'pos', 'neg', 
+        'normal', 'abnormal', 'normal range',
+        'clear', 'cloudy', 'turbid', 'translucent', 'pale yellow', 'yellow',
+        'straw colored', 'amber', 'colorless', 'slightly turbid', 'moderately turbid',
+        'absent', 'present', 'nil', 'none', 'no growth', 'growth seen',
+        'trace', 'small', 'moderate', 'large', 'scanty',
+        'a+', 'b+', 'o+', 'ab+', 'a-', 'b-', 'o-', 'ab-',
+        'rh positive', 'rh negative', 'rh+', 'rh-',
+        '1+', '2+', '3+', '4+',
+        'within normal limits', 'wnl', 'adequate', 'inadequate',
+    }
+    
+    val_lower = value_str.lower().strip()
+    is_valid_text = (
+        val_lower in valid_text_results or
+        bool(re.match(r'^(?:reactive|non.?reactive)\s*[\d:.]+$', val_lower, re.IGNORECASE)) or
+        bool(re.match(r'^[1-4]\+$', val_lower)) or
+        bool(re.match(r'^[aboab][\+-]?\s*(?:positive|negative)?$', val_lower))
+    )
+    
+    if not has_numbers and not is_valid_text:
+        return False
+    
+    # REJECT METADATA FIELDS
+    metadata_patterns = [
+        r'^(patient|name|age|sex|gender|id|p\.? id|accession|referring)',
+        r'^(date|time|collected|received|reported|released|processed)',
+        r'^(billing|sample|barcode|plot|client|doctor|consultant)',
+        r'^(phone|email|address|registration|ward|bed)',
+        r'^(page\s*\d|page\s*no|end\s*of\s*report)',
+        r'^(signature|signed|verified|authorized|approved)',
+        r'^(laboratory|lab|diagnostic|pathology|hospital)',
+        r'(pathkind|dr\s*lal|metropolis|thyrocare|apollo)',
+        r'^(method|sample\s*type|instrument|machine)',
+        r'^(remark|note|comment|interpretation|conclusion)$',
+    ]
+    
+    for pattern in metadata_patterns:
+        if re.search(pattern, test_lower):
             return False
-
-    # Reject time/date patterns
-    if re.search(r'\b\d{1,2}:\d{2}\b', value_str):
-        return False
-    if re.search(r'\b(am|pm)\b', val_lower):
-        return False
-    if re.search(r'\b\d{1,2}\s*(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b', val_lower):
-        return False
-
-    # Reject metadata
-    metadata_keywords = [
-        "age", "gender", "patient", "id", "page", "report", "date", "name", "address",
-        "phone", "email", "registered", "collected", "reported", "instrument", "sample",
-        "plot no", "barcode", "page no", "client", "referring doctor", "ref no",
-        "processed by", "billing date", "released on", "received on", "accession no",
-        "dr.", "consultant", "senior", "end of report", "pathkind", "diagnostics",
-        "pvt ltd", "hospital", "ipd", "opd", "technician", "signature", "signed",
-        "pathologist", "verified", "authorized"
+    
+    narrative_indicators = [
+        'clinical significance', 'please note', 'in case of',
+        'as per guidelines', 'this test comprises', 'result should be',
+        'for more information', 'contact us', 'customer care',
+        'nabl accredited', 'iso certified', 'national reference',
+        'processed by', 'reported by', 'examined by',
     ]
-    if any(k in test for k in metadata_keywords):
+    
+    for indicator in narrative_indicators:
+        if indicator in test_lower:
+            return False
+    
+    if len(value_str.split()) > 15:
+        if not any(word in val_lower for word in ['normal', 'range', 'ref']):
+            return False
+    
+    if is_valid_text and not has_numbers:
+        acceptable_test_keywords = [
+            'urine', 'glucose', 'protein', 'ketone', 'blood', 'bilirubin',
+            'urobilinogen', 'nitrite', 'leucocyte', 'pus', 'epithelial',
+            'cast', 'crystal', 'bacteria', 'yeast', 'mucus', 'trichomonas',
+            'colour', 'color', 'appearance', 'specific gravity', 'ph',
+            'hiv', 'hcv', 'hbv', 'hbsag', 'vdrl', 'rpr',
+            'pregnancy', 'hcg', 'blood group', 'rh factor', 'typing',
+            'widal', 'typhi', 'malaria', 'dengue', 'chikungunya',
+            'covid', 'coronavirus', 'antibody', 'antigen',
+            'grouping', 'typing', 'crossmatch', 'screen',
+            'culture', 'sensitivity', 'organism', 'growth',
+            'gram stain', 'afb', 'cytology', 'histo', 'biopsy', 'pap smear',
+            'rapid card', 'elisa', 'pcr', 'test', 'screen',
+        ]
+        
+        is_medical_test = any(kw in test_lower for kw in acceptable_test_keywords)
+        has_medical_structure = bool(re.search(
+            r'(test|analysis|examination|count|level|rate|index|ratio|factor|'
+            r'time|volume|concentration|activity|antibody|antigen|marker)',
+            test_lower
+        ))
+        is_abbreviation = (
+            len(test_lower) <= 5 and 
+            test_lower.isalpha() and
+            test_lower not in ['name', 'date', 'type', 'none']
+        )
+        
+        if not (is_medical_test or has_medical_structure or is_abbreviation):
+            if test_lower in ['colour', 'color', 'ph', 'clarity', 'odour', 'odor']:
+                is_medical_test = True
+            if not is_medical_test:
+                return False
+    
+    if not re.search(r'[a-zA-Z]', test):
         return False
-
-    # Reject sentence fragments
-    fragment_keywords = [
-        "tested", "please", "note", "this ", "in case", "as per", "confirmation",
-        "guidelines", "comprises", "should be", "is used", "is a ", "may be", "can be",
-        "is helpful", "is the", "clinical significance", "method", "principal"
-    ]
-    if any(test.startswith(f) for f in fragment_keywords):
-        return False
-
-    # Reject narrative values
-    narrative_keywords = [
-        "associated", "risk", "recommended", "suggested", "evidence", "increase",
-        "decrease", "should be", "advised to"
-    ]
-    if any(word in test for word in narrative_keywords):
-        return False
-    if any(word in val_lower for word in narrative_keywords):
-        return False
-
-    # Reject long sentences
-    if len(test.split()) > 10:
-        return False
-
-    # Must be alphabetic enough
-    if sum(c.isalpha() for c in test) < 3:
-        return False
-
-    # Reject address-like patterns
-    if re.match(r'^\d+[\w\s,.-]+$', test):
-        return False
-
+    
+    if re.match(r'^[\d\w\s,.\-/]+$', test) and len(test) > 20:
+        if ',' in test and any(c.isdigit() for c in test[:5]):
+            return False
+    
     return True
-
 
 # ===========================================================================
 # ✅ FIX 4 APPLIED: Data Sanitization — ALWAYS removes garbage
@@ -638,7 +911,13 @@ def is_valid_test_row(test_name, value, unit="", reference_range=""):
 def sanitize_table_data(table_rows):
     """
     Filter out garbage/corrupt rows before processing.
-    🔥 FIXED v3.1: Garbage rows are ALWAYS removed regardless of percentage.
+    
+    ✅ FIXED v4.0: Enhanced filtering for:
+    - Metadata entries (PID, Patient ID, Accession No, etc.)
+    - Truncated test names (Na : K, etc.)
+    - Values that look like IDs without context
+    - ECG findings mixed into lab data
+    
     Returns: (cleaned_rows, stats_dict)
     """
     if not table_rows:
@@ -651,39 +930,116 @@ def sanitize_table_data(table_rows):
     for row in table_rows:
         test_name = row.get('test', '')
         value = row.get('value', '')
-        test_lower = test_name.lower()
+        unit = row.get('unit', '')
+        test_lower = test_name.lower().strip()
         is_garbage = False
+        reason = ""
 
-        # Check 1: Truncated test names (e.g., "Na : K")
+        # ===== CHECK 1: METADATA PATTERNS =====
+        metadata_patterns = [
+            r'^pid\s*[:\-]?', r'^p\s*\.\s*id\s*[:\-]?',
+            r'^patient\s*id\s*[:\-]?', r'^accession\s*(no)?\s*[:\-]?',
+            r'^sample\s*(id)?\s*[:\-]?', r'^report\s*(no)?\s*[:\-]?',
+            r'^mr\s*(no)?\s*[:\-]?', r'^op\s*(no)?\s*[:\-]?',
+            r'^ip\s*(no)?\s*[:\-]?', r'^bill(ing)?\s*(no)?\s*[:\-]?$',
+            r'^reg(istration)?\s*(no)?\s*[:\-]?$', r'^file\s*(no)?\s*[:\-]?',
+            r'^batch\s*(no)?\s*[:\-]?', r'^barcode\s*(no)?\s*[:\-]?',
+            r'^plot\s*(no)?\s*[:\-]?', r'^ref(ERENCE)?\s*(no)?\s*[:\-]?',
+            r'^requisition\s*(no)?\s*[:\-]?', r'^case\s*(no)?\s*[:\-]?',
+            r'^visit\s*(no)?\s*[:\-]?', r'^ticket\s*(no)?\s*[:\-]?',
+            r'^form\s*(no)?\s*[:\-]?', r'^voucher\s*(no)?\s*[:\-]?',
+            r'^invoice\s*(no)?\s*[:\-]?', r'^order\s*(no)?\s*[:\-]?',
+            r'^receipt\s*(no)?\s*[:\-]?', r'^slip\s*(no)?\s*[:\-]?',
+            r'^token\s*(no)?\s*[:\-]?', r'^code\s*(no)?\s*[:\-]?',
+            r'^id\s*:\s*\d+$', r'^no[\s:.]*\d+$',
+        ]
+        
+        for pattern in metadata_patterns:
+            if re.search(pattern, test_lower):
+                is_garbage = True
+                reason = f"Metadata pattern: {pattern}"
+                break
+        
+        if is_garbage:
+            garbage_count += 1
+            if len(garbage_examples) < 5:
+                garbage_examples.append(f"{test_name}: {value} ({reason})")
+            continue
+
+        # ===== CHECK 2: TRUNCATED TEST NAMES =====
         if re.search(r'\b\w{1,3}\s*:\s*\w{1,3}\b', test_name):
             is_garbage = True
+            reason = "Truncated name"
 
-        # Check 2: Text values where numeric expected
-        text_values = [
+        # ===== CHECK 3: VALUE LOOKS LIKE ID NUMBER =====
+        if re.match(r'^\d{3,}$', str(value)) and not unit:
+            if len(test_name) < 15:
+                known_medical_keywords = [
+                    'hb', 'hemoglobin', 'rbc', 'wbc', 'platelet', 'glucose',
+                    'creatinine', 'urea', 'tsh', 't4', 't3', 'alt', 'ast',
+                    'bilirubin', 'albumin', 'protein', 'calcium', 'sodium',
+                    'potassium', 'chloride', 'magnesium', 'phosphate',
+                    'iron', 'ferritin', 'b12', 'folate', 'vitamin',
+                    'mcv', 'mch', 'mchc', 'rdw', 'mpv', 'pdw',
+                    'hba1c', 'cholesterol', 'hdl', 'ldl', 'triglycerides',
+                    'neutrophil', 'lymphocyte', 'eosinophil', 'monocyte', 'basophil',
+                    'pcv', 'hematocrit', 'esr', 'crp', 'pt', 'inr', 'aptt',
+                    'uric acid', 'gfr', 'egfr', 'alp', 'ggtp'
+                ]
+                is_known_test = any(kw in test_lower for kw in known_medical_keywords)
+                if not is_known_test:
+                    is_garbage = True
+                    reason = "ID-like value without context"
+
+        # ===== CHECK 4: TEXT VALUES WITHOUT CONTEXT =====
+        text_values_that_need_context = [
             'normal', 'abnormal', 'none', 'no', 'yes', 'not observed',
-            'prolonged', 'within normal limits', 'profound bradycardia'
+            'prolonged', 'within normal limits', 'pending', 'received', 'done', 'ok'
         ]
-        if str(value).lower().strip() in text_values:
+        if str(value).lower().strip() in text_values_that_need_context:
             allowed_for_text = any(kw in test_lower for kw in [
-                'pregnancy', 'hiv', 'hcv', 'vdrl', 'blood group'
+                'pregnancy', 'hiv', 'hcv', 'vdrl', 'blood group',
+                'rh factor', 'typing', 'culture', 'sensitivity', 'serology', 'rapid', 'elisa', 'pcr'
             ])
             if not allowed_for_text:
                 is_garbage = True
+                reason = "Text value without proper context"
 
-        # Check 3: ECG findings mixed into lab data (without numeric values)
+        # ===== CHECK 5: ECG FINDINGS IN NON-ECG REPORTS =====
         ecg_indicators = [
             'qrs duration', 'qt interval', 'pr interval', 'cardiac axis',
             'p-wave', 't-wave', 'morphology', 'sinus rhythm',
-            'atrial pause', 'av conduction'
+            'atrial pause', 'av conduction', 'ectopics',
+            'heart rate', 'ventricular rate', 'rhythm'
         ]
         if any(ind in test_lower for ind in ecg_indicators):
             if not re.search(r'\d', str(value)):
-                is_garbage = True
+                source = row.get('source', '')
+                if 'ecg' not in source.lower():
+                    is_garbage = True
+                    reason = "ECG finding in non-ECG report"
 
+        # ===== CHECK 6: TEST NAME VALIDATION =====
+        if len(test_name) < 2:
+            is_garbage = True
+            reason = "Too short"
+        elif len(test_name) > 120:
+            is_garbage = True
+            reason = "Too long"
+        elif re.match(r'^[\d\W]+$', test_name):
+            is_garbage = True
+            reason = "Non-alphanumeric name"
+
+        # ===== CHECK 7: EMPTY VALUE =====
+        if not value or value.lower() in ['', 'nan', 'null', 'none', 'n/a', 'na']:
+            is_garbage = True
+            reason = "Empty/invalid value"
+
+        # ===== FINAL DECISION =====
         if is_garbage:
             garbage_count += 1
-            if len(garbage_examples) < 3:
-                garbage_examples.append(f"{test_name}: {value}")
+            if len(garbage_examples) < 5:
+                garbage_examples.append(f"{test_name}: {value} ({reason})")
         else:
             clean_rows.append(row)
 
@@ -694,9 +1050,9 @@ def sanitize_table_data(table_rows):
         "examples": garbage_examples
     }
 
-    # 🔥 ALWAYS log and return cleaned rows
     if garbage_count > 0:
-        ratio = garbage_count / len(table_rows)
+        ratio = garbage_count / len(table_rows) if len(table_rows) > 0 else 0
+        
         if ratio > 0.3:
             print(f"\n🚨 HIGH SEVERITY: {garbage_count}/{len(table_rows)} rows removed ({ratio:.0%})")
         elif ratio > 0.1:
@@ -705,12 +1061,137 @@ def sanitize_table_data(table_rows):
             print(f"\nℹ️ LOW: {garbage_count} minor cleanup(s)")
         
         if garbage_examples:
-            print(f"   Examples: {garbage_examples}")
+            print(f"   Examples removed:")
+            for ex in garbage_examples:
+                print(f"      🗑️  {ex}")
         
         return clean_rows, stats
     
     return table_rows, stats
 
+def clean_ocr_artifacts_from_unit(unit_str):
+    """
+    Remove common OCR artifacts from unit field.
+    
+    Handles:
+    - Partial words from headers ("holog", "labor", "ology")
+    - Status words leaked into unit ("borderline", "normal", "high", "low")
+    - Lab names mixed in ("pathkind", "metropolis")
+    - Garbage text
+    
+    Returns: Cleaned unit string or empty string
+    """
+    if not unit_str:
+        return ''
+    
+    # Common OCR artifacts found in medical reports
+    artifacts = [
+        # Partial header words (OCR reads background text)
+        'holog', 'labor', 'ology', 'drlogy',
+        'y labor', 'n labor', 'drlabor', 'pathol',
+        
+        # Status words that should be STATUS, not UNIT
+        'borderline', 'abnormal', 'critical', 'severe',
+        'moderate', 'mild', 'reactive', 'non-reactive',
+        
+        # Lab names that sometimes leak in
+        'pathkind', 'metropolis', 'thyrocare', 'apollo',
+        'dr lal', 'srl', 'nicd',
+        
+        # Other garbage
+        'reflex', 'techno', 'micro', 'auto',
+        'value', 'result', 'range'
+    ]
+    
+    cleaned = str(unit_str).strip()
+    
+    # Remove each artifact
+    for artifact in artifacts:
+        cleaned = cleaned.replace(artifact, '').strip()
+        cleaned = cleaned.replace(artifact.title(), '').strip()
+        cleaned = cleaned.replace(artifact.upper(), '').strip()
+    
+    # Remove leading/trailing non-unit characters (keep only last meaningful part)
+    if len(cleaned) > 10:
+        unit_patterns = [
+            r'(g/dl|mg/dl|%|fl|pg|cumm|mill/cumm|/cumm|/ul|ml|mmol/l|iu/l|iu/ml)$',
+            r'(\w{1,6})$',
+        ]
+        for pattern in unit_patterns:
+            match = re.search(pattern, cleaned, re.IGNORECASE)
+            if match:
+                cleaned = match.group(1)
+                break
+        else:
+            cleaned = ''
+    
+    # Final validation
+    if re.match(r'^\d', cleaned):
+        cleaned = ''
+    if cleaned.lower() in ['borderline', 'normal', 'high', 'low', 'unknown']:
+        cleaned = ''
+    
+    return cleaned.strip()
+
+
+def clean_ocr_artifacts_from_range(range_str):
+    """
+    Extract only numeric range from messy OCR output.
+    
+    Handles:
+    - "y Labor 4000-11000" → "4000 - 11000"
+    - "Borderline 150000-410000" → "150000 - 410000"
+    - "<100" → "<100"
+    - ">200" → ">200"
+    
+    Returns: Clean range string or empty string
+    """
+    if not range_str:
+        return ''
+    
+    range_str = str(range_str).strip()
+    
+    # If already looks like a standard range format, return as-is
+    if re.match(r'^\d+\.?\d*\s*[-–—]\s*\d+\.?\d*$', range_str):
+        return range_str
+    
+    if re.match(r'^[<>]\s*\d+\.?\d*$', range_str):
+        return range_str
+    
+    if range_str.lower() in ['nan', '-', '', 'none', 'na', 'n/a', 'not available', 'normal', 'abnormal']:
+        return ''
+    
+    # Try to extract numeric range pattern
+    match = re.search(r'(\d+\.?\d*)\s*[-–—]\s*(\d+\.?\d*)', range_str)
+    if match:
+        low, high = match.group(1), match.group(2)
+        try:
+            low_val, high_val = float(low), float(high)
+            if high_val > low_val and 0 < low_val < 100000 and 0 < high_val < 100000:
+                return f"{low} - {high}"
+        except ValueError:
+            pass
+    
+    # Try single-sided ranges
+    if '<' in range_str:
+        nums = re.findall(r'\d+\.?\d*', range_str)
+        if nums and 0 < float(nums[0]) < 100000:
+            return f"<{nums[0]}"
+    
+    if '>' in range_str:
+        nums = re.findall(r'\d+\.?\d*', range_str)
+        if nums and 0 < float(nums[0]) < 100000:
+            return f">{nums[0]}"
+    
+    # Last resort
+    if re.search(r'\d', range_str) and len(range_str) <= 25:
+        text_without_numbers = re.sub(r'\d+\.?\d*', '', range_str).strip()
+        if text_without_numbers and not any(c.isalpha() for c in text_without_numbers[:5]):
+            return range_str
+        elif not text_without_numbers:
+            return range_str
+    
+    return ''
 
 # ===========================================================================
 # ✅ FIX 1 APPLIED: Table Loading — Passes actual unit variable
@@ -720,11 +1201,10 @@ def load_and_parse_table_rows(session_key):
     """
     Load table data from cache, clean values, deduplicate, merge clinical notes.
     
-    ✅ FIXED v5.0: 
+    ✅ FIXED v6.0: 
+    - Cleans OCR artifacts from units and ranges
+    - Auto-detects units for differential counts
     - Preserves source type (ecg_analysis, lab_report, etc.)
-    - Relaxed validation for ECG measurements
-    - Allows text values for ECG findings
-    - Properly handles cardiac units (ms, bpm, degrees)
     """
     table_text = cache.get(f"latest_table_data_{session_key}")
     table_rows = []
@@ -743,42 +1223,48 @@ def load_and_parse_table_rows(session_key):
                 value = str(row_data.get("value", "")).strip()
                 unit = str(row_data.get("unit", "")).strip()
                 range_val = str(row_data.get("range", "")).strip()
-                source = str(row_data.get("source", "lab_report")).strip()  # ✅ Preserve original source
+                source = str(row_data.get("source", "lab_report")).strip()
                 
                 # Light cleanup
                 test = re.sub(r'\s+', ' ', test)
-                unit = re.sub(r'\s+', ' ', unit)
                 
-                # Normalize units
-                if unit.lower() == "g/dl":
+                # ===== ✅ NEW: CLEAN OCR ARTIFACTS FROM UNIT =====
+                unit = clean_ocr_artifacts_from_unit(unit)
+                
+                # ===== ✅ NEW: CLEAN OCR ARTIFACTS FROM RANGE =====
+                range_val = clean_ocr_artifacts_from_range(range_val)
+                
+                # Normalize common units
+                unit_lower = unit.lower()
+                if unit_lower == "g/dl":
                     unit = "g/dL"
-                elif unit.lower() == "mg/dl":
+                elif unit_lower == "mg/dl":
                     unit = "mg/DL"
+                elif unit_lower in ["cumm", "/cumm", "cu/mm"]:
+                    unit = "/cumm"
+                elif unit_lower == "mill/cumm":
+                    unit = "mill/cumm"
+                
+                # ===== ✅ NEW: AUTO-DETECT UNITS FOR DIFFERENTIAL COUNTS =====
+                diff_count_tests = ['neutrophil', 'lymphocyte', 'eosinophil', 'monocyte', 'basophil']
+                is_diff_count = any(dt in test.lower() for dt in diff_count_tests)
+                if is_diff_count and not unit:
+                    unit = '%'
+                    print(f"   📊 Auto-added % unit for differential count: {test}")
 
-                # ================================================================
-                # ✅ NEW: ECG-Specific Validation (Relaxed Rules)
-                # ================================================================
+                # ECG-SPECIFIC VALIDATION
                 is_ecg_data = (source.lower() == 'ecg_analysis')
                 
                 if is_ecg_data:
-                    # ECG data gets special treatment
-                    
-                    # Must have test name
                     if not test or len(test) < 2:
                         continue
-                    
-                    # Must have some value
                     if not value:
                         continue
                     
-                    # Try to clean numeric value
                     cleaned = clean_numeric_value(value)
-                    
                     if cleaned:
-                        # Numeric value - use it
                         value = cleaned
                     else:
-                        # Text value - only allow certain ECG terms
                         valid_ecg_text_values = [
                             'normal', 'abnormal', 'low', 'high', 'borderline',
                             'prolonged', 'shortened', 'regular', 'irregular',
@@ -786,25 +1272,18 @@ def load_and_parse_table_rows(session_key):
                             'within normal limits', 'not observed',
                             'bradycardia', 'tachycardia', 'block'
                         ]
-                        
-                        value_lower = value.lower().strip()
-                        
-                        if value_lower not in valid_ecg_text_values:
-                            # Not a valid text value, skip this row
+                        if value.lower().strip() not in valid_ecg_text_values:
                             continue
-                        
-                        # Keep text value as-is (don't convert)
+                
                 else:
-                    # Standard lab data - strict validation
                     if not is_valid_test_row(test, value, unit, reference_range=range_val):
                         continue
-
                     cleaned = clean_numeric_value(value)
                     if not cleaned:
                         continue
                     value = cleaned
 
-                # Build row with PRESERVED source
+                # Build row
                 row = {
                     "test": test,
                     "value": value,
@@ -812,58 +1291,42 @@ def load_and_parse_table_rows(session_key):
                     "range": range_val,
                     "status": "UNKNOWN",
                     "severity": "normal",
-                    "source": source,  # ✅ Use preserved source, not hardcoded "lab_report"
+                    "source": source,
                     "confidence": row_data.get("confidence", "high")
                 }
                 
+                # Status detection
                 if is_ecg_data:
-                    # ECG data: check if we already have pre-calculated status/range/severity
-                    # (from extract_structured_ecg_data which now properly sets them)
                     has_precomputed = (
                         row_data.get("status") and row_data.get("status") != "UNKNOWN" or
                         row_data.get("range") and row_data["range"] != ""
                     )
                     
                     if has_precomputed:
-                        # Use pre-computed values from extraction
                         row["status"] = row_data.get("status", "UNKNOWN")
                         row["severity"] = row_data.get("severity", "normal")
                         if row_data.get("range"):
                             row["range"] = row_data["range"]
                     elif not re.match(r'^[\d.]+$', value):
-                        # Text value without pre-computed status
                         value_lower = value.lower().strip()
-                        if value_lower in ['abnormal', 'low', 'high', 'borderline', 'prolonged', 'shortened']:
-                            if value_lower in ['low', 'bradycardia', 'prolonged']:
-                                row["status"] = "LOW"
-                            elif value_lower in ['high', 'tachycardia']:
-                                row["status"] = "HIGH"
-                            elif value_lower == 'borderline':
-                                row["status"] = "NORMAL"
-                            else:
-                                row["status"] = "ABNORMAL"
+                        if value_lower in ['low', 'bradycardia', 'prolonged']:
+                            row["status"] = "LOW"
+                        elif value_lower in ['high', 'tachycardia']:
+                            row["status"] = "HIGH"
+                        elif value_lower == 'borderline':
+                            row["status"] = "NORMAL"
                         elif value_lower in ['normal', 'regular', 'present', 'within normal limits']:
                             row["status"] = "NORMAL"
                         else:
                             row["status"] = "UNKNOWN"
                         row["severity"] = "normal"
                     else:
-                        # Numeric ECG value - use ECG-specific ranges
                         row_status, used_range = detect_status_with_fallback(test, value, range_val)
                         row["status"] = row_status
                         if used_range and not range_val:
                             row["range"] = used_range
                         row["severity"] = calculate_severity(value, row["range"] or used_range, row_status)
                 else:
-                    # Standard lab data - keep existing logic
-                    if not is_valid_test_row(test, value, unit, reference_range=range_val):
-                        continue
-
-                    cleaned = clean_numeric_value(value)
-                    if not cleaned:
-                        continue
-                    value = cleaned
-
                     row_status, used_range = detect_status_with_fallback(test, value, range_val)
                     row["status"] = row_status
                     if used_range and not range_val:
@@ -879,7 +1342,7 @@ def load_and_parse_table_rows(session_key):
         print(f"Table load error: {e}")
         return []
 
-    # Deduplicate (keep first occurrence)
+    # Deduplication
     seen = set()
     unique_rows = []
     for row in table_rows:
@@ -888,7 +1351,7 @@ def load_and_parse_table_rows(session_key):
             seen.add(key)
             unique_rows.append(row)
 
-    # Merge Clinical Notes Lab Data
+    # Merge Clinical Notes
     clinical_data_json = cache.get(f"latest_clinical_data_{session_key}")
     if clinical_data_json:
         try:
@@ -902,12 +1365,12 @@ def load_and_parse_table_rows(session_key):
                     n_lab["status"] = row_status
                     n_lab["range"] = used_range or ""
                     n_lab["severity"] = calculate_severity(n_lab["value"], n_lab["range"], row_status)
-                    
                     unique_rows.append(n_lab)
                     seen.add(key)
         except Exception as e:
             print(f"Clinical notes merge error: {e}")
 
+    print(f"\n✅ Loaded {len(unique_rows)} unique tests from cache")
     return unique_rows
 
 def build_table_context_string(table_rows):
@@ -1595,289 +2058,6 @@ def extract_structured_ecg_data(graph_analysis_result):
     print(f"      ❌ All strategies failed")
     return []
 
-
-def _calculate_ecg_status(test_name, value, normal_range):
-    """
-    FIXED: Calculate status accepting CLINICALLY VALID abnormal ranges.
-    
-    Bradycardia: 30-59 bpm (was rejecting < 40!)
-    Tachycardia: 101-200 bpm
-    Prolonged PR: > 200ms (up to 400ms in block)
-    Wide QRS: > 120ms (up to 200ms in bundle branch block)
-    Prolonged QTc: > 460ms (up to 600ms in LQTS)
-    """
-    low, high = normal_range
-    
-    # Handle special cases for extreme values
-    if test_name == 'Heart Rate':
-        if value < 30:  # Severe bradycardia (< 30 is dangerous)
-            return "LOW", "severe"
-        elif value < 50:  # Moderate-severe bradycardia
-            return "LOW", "severe"
-        elif value < 60:  # Mild bradycardia
-            deviation = abs(value - low) / low * 100
-            return "LOW", ("moderate" if deviation > 20 else "mild")
-        elif value > 150:  # Severe tachycardia
-            return "HIGH", "severe"
-        elif value > 100:  # Tachycardia
-            deviation = abs(value - high) / high * 100
-            return "HIGH", ("moderate" if deviation > 30 else "mild")
-        else:
-            return "NORMAL", "normal"
-            
-    elif 'PR' in test_name:
-        if value > 300:  # Very prolonged (AV block territory)
-            return "HIGH", "severe"
-        elif value > 200:  # Prolonged
-            deviation = (value - high) / high * 100
-            return "HIGH", ("moderate" if deviation > 30 else "mild")
-        elif value < 120:  # Short PR (pre-excitation)
-            return "LOW", "mild"
-        else:
-            return "NORMAL", "normal"
-            
-    elif 'QRS' in test_name:
-        if value > 160:  # Very wide (pacing, severe BBB)
-            return "HIGH", "severe"
-        elif value > 120:  # Wide (bundle branch block)
-            deviation = (value - high) / high * 100
-            return "HIGH", ("moderate" if deviation > 25 else "mild")
-        else:
-            return "NORMAL", "normal"
-            
-    elif 'QTc' in test_name or ('QT' in test_name and 'c' not in test_name):
-        if value > 550:  # Dangerously prolonged
-            return "HIGH", "severe"
-        elif value > 460:  # Prolonged
-            deviation = (value - high) / high * 100
-            return "HIGH", ("moderate" if deviation > 15 else "mild")
-        elif value < 320:  # Short QT syndrome
-            return "LOW", "severe"
-        elif value < 340:  # Borderline short
-            return "LOW", "mild"
-        else:
-            return "NORMAL", "normal"
-    
-    else:
-        # Generic calculation for axis and others
-        if value < low:
-            deviation = abs(value - low) / abs(low) * 100 if low != 0 else 0
-            if deviation > 50:
-                return "LOW", "severe"
-            elif deviation > 25:
-                return "LOW", "moderate"
-            else:
-                return "LOW", "mild"
-        elif value > high:
-            deviation = abs(value - high) / abs(high) * 100 if high != 0 else 0
-            if deviation > 50:
-                return "HIGH", "severe"
-            elif deviation > 25:
-                return "HIGH", "moderate"
-            else:
-                return "HIGH", "mild"
-        else:
-            return "NORMAL", "normal"
-
-
-def _parse_flattened_ecg_data(flattened_items):
-    """
-    Parse flattened ECG data with WIDER acceptance ranges.
-    """
-    # Field patterns with CLINICALLY VALID ranges (including abnormal!)
-    field_patterns = [
-        # Heart Rate: 25-250 bpm (bradycardia to extreme tachycardia)
-        (r'heart.?rate|ventricular.?rate|hr\b|pulse.?rate', 
-         'Heart Rate', 'bpm', (60, 100), (25, 250)),
-        
-        # PR Interval: 80-400ms (short to AV block)
-        (r'pr.?interval|pr.?duration|pr_dur|prs?',
-         'PR Interval', 'ms', (120, 200), (80, 400)),
-        
-        # QRS Duration: 40-220ms (narrow to paced)
-        (r'qrs.?duration|qrs.?dur|qrss?|qrsd',
-         'QRS Duration', 'ms', (80, 120), (40, 220)),
-        
-        # QT/QTc Interval: 280-650ms 
-        (r'qtc|qt.?c.*interval|corrected.*qt',
-         'QTc Interval', 'ms', (340, 460), (280, 650)),
-        (r'qt.?interval(?!c)|qt\b',
-         'QT Interval', 'ms', (350, 460), (280, 600)),
-        
-        # Axis: -90 to +180 degrees
-        (r'\bp.?axis|p.axis', 'P Axis', '°', (-30, 90), (-90, 180)),
-        (r'\bqrs.?axis|qrs.axis', 'QRS Axis', '°', (-30, 100), (-90, 180)),
-        (r'\bt.?axis|t.axis', 'T Axis', '°', (-30, 90), (-90, 180)),
-        
-        # Other cardiac
-        (r'rr.?interval|rr\b', 'RR Interval', 'ms', (600, 1000), (200, 2000)),
-        (r'p.?wave.*dur', 'P Wave Duration', 'ms', (80, 120), (40, 160)),
-    ]
-    
-    extracted = []
-    seen_tests = set()
-    
-    for full_key, value, original_key in flattened_items:
-        if not isinstance(value, (int, float)):
-            continue
-        
-        # Skip zero or negative (except axis)
-        if value == 0:
-            continue
-        if value < 0 and 'axis' not in full_key.lower():
-            continue
-            
-        matched = False
-        for pattern, display_name, unit, normal_range, acceptable_range in field_patterns:
-            key_str = full_key.lower() + " " + original_key.lower()
-            if re.search(pattern, key_str, re.IGNORECASE):
-                if display_name in seen_tests:
-                    continue
-                    
-                acc_low, acc_high = acceptable_range
-                
-                # Check if within ACCEPTABLE clinical range (not just normal!)
-                if acc_low <= value <= acc_high:
-                    seen_tests.add(display_name)
-                    status, severity = _calculate_ecg_status(display_name, value, normal_range)
-                    
-                    extracted.append({
-                        'test': display_name,
-                        'value': str(int(value)) if value == int(value) else f"{value:.1f}",
-                        'unit': unit,
-                        'range': f"{normal_range[0]}-{normal_range[1]}",
-                        'status': status,
-                        'severity': severity,
-                        'source': 'ecg_analysis',
-                        'confidence': 'high'
-                    })
-                    print(f"         ✅ {display_name}: {value} {unit} [{status}]")
-                else:
-                    print(f"         ⏭️ {display_name}: {value} outside acceptable range ({acc_low}-{acc_high})")
-                
-                matched = True
-                break
-        
-        if not matched:
-            pass  # Silently skip unmatched
-    
-    return extracted
-
-
-def _mine_text_from_graph_result(graph_result):
-    """
-    FIXED: Text mining with WIDER clinical ranges.
-    Now accepts bradycardia (30+ bpm), prolonged PR (>200ms), etc.
-    """
-    import json as json_module
-    
-    full_text = json_module.dumps(graph_result, default=str)
-    
-    # Patterns with CLINICALLY VALID ranges including abnormalities
-    patterns = [
-        # Heart Rate: 25-250 bpm (CRITICAL FIX: was 40-200, now accepts 38!)
-        {
-            'regex': r'(?:Heart\s+Rate|Ventricular\s+Rate|HR)[\s:\-]*(\d+(?:\.\d+)?)\s*(?:bpm)?',
-            'name': 'Heart Rate',
-            'unit': 'bpm',
-            'normal': (60, 100),
-            'acceptable': (25, 250),
-        },
-        # PR Interval: 80-400ms
-        {
-            'regex': r'PR[\s_]*(?:Interval|Duration)?[\s:\-]*(\d+(?:\.\d+)?)\s*(?:ms)?',
-            'name': 'PR Interval',
-            'unit': 'ms',
-            'normal': (120, 200),
-            'acceptable': (80, 400),
-        },
-        # QRS Duration: 40-220ms
-        {
-            'regex': r'QRS[\s_]*(?:Duration)?[\s:\-]*(\d+(?:\.\d+)?)\s*(?:ms)?',
-            'name': 'QRS Duration',
-            'unit': 'ms',
-            'normal': (80, 120),
-            'acceptable': (40, 220),
-        },
-        # QTc Interval: 280-650ms (MUST be 3 digits to avoid matching page numbers like "29")
-        {
-            'regex': r'QTc?[\s_]*(?:Interval|Duration)?[\s:\-]*(\d{3}(?:\.\d+)?)\s*(?:ms)?',
-            'name': 'QTc Interval',
-            'unit': 'ms',
-            'normal': (340, 460),
-            'acceptable': (280, 650),
-        },
-        # P Axis
-        {
-            'regex': r'P\s*Axis[\s:\-]*([+-]?\d{1,3})\s*(?:°|degrees)?',
-            'name': 'P Axis',
-            'unit': '°',
-            'normal': (-30, 90),
-            'acceptable': (-90, 180),
-        },
-        # QRS Axis
-        {
-            'regex': r'QRS\s*Axis[\s:\-]*([+-]?\d{1,3})\s*(?:°|degrees)?',
-            'name': 'QRS Axis',
-            'unit': '°',
-            'normal': (-30, 100),
-            'acceptable': (-90, 180),
-        },
-        # T Axis
-        {
-            'regex': r'T\s*Axis[\s:\-]*([+-]?\d{1,3})\s*(?:°|degrees)?',
-            'name': 'T Axis',
-            'unit': '°',
-            'normal': (-30, 90),
-            'acceptable': (-90, 180),
-        },
-    ]
-    
-    extracted = []
-    seen_names = set()
-    
-    for pat_info in patterns:
-        matches = re.findall(pat_info['regex'], full_text, re.IGNORECASE)
-        
-        if matches:
-            for match in matches:
-                try:
-                    value = float(match)
-                    
-                    acc_low, acc_high = pat_info['acceptable']
-                    norm_low, norm_high = pat_info['normal']
-                    
-                    # Check ACCEPTABLE range (includes abnormal values!)
-                    if not (acc_low <= value <= acc_high):
-                        print(f"         ⏭️ {pat_info['name']}: {value} outside {acc_low}-{acc_high}")
-                        continue
-                    
-                    # Skip duplicates
-                    if pat_info['name'] in seen_names:
-                        continue
-                    seen_names.add(pat_info['name'])
-                    
-                    status, severity = _calculate_ecg_status(
-                        pat_info['name'], value, (norm_low, norm_high)
-                    )
-                    
-                    extracted.append({
-                        'test': pat_info['name'],
-                        'value': str(int(value)) if value == int(value) else f"{value:.1f}",
-                        'unit': pat_info['unit'],
-                        'range': f"{norm_low}-{norm_high}",
-                        'status': status,
-                        'severity': severity,
-                        'source': 'text_mining',
-                        'confidence': 'medium'
-                    })
-                    print(f"         ✅ {pat_info['name']}: {value} {pat_info['unit']} [{status}]")
-                    
-                except (ValueError, TypeError):
-                    continue
-    
-    return extracted
-
 def _find_measurements_dict_recursive(obj, depth=0, path="root"):
     """Original recursive search - kept as Strategy 1"""
     if depth > 6 or not isinstance(obj, dict):
@@ -2231,110 +2411,191 @@ def _parse_measurements_dict(measurements_dict, source='ecg_analysis'):
 # ✅ ECG EXTRACTION HELPER FUNCTIONS (MODULE LEVEL - Outside upload_and_index!)
 # ===========================================================================
 
-def _calculate_ecg_status(test_name, value, normal_range):
+def extract_report_metadata(text_content):
     """
-    Calculate status accepting CLINICALLY VALID abnormal ranges.
+    UNIVERSAL REPORT METADATA EXTRACTOR v2.0
+    
+    Extracts from ANY medical report:
+    - Report Status (Final/Preliminary/Amended)
+    - Clinical Significance sections
+    - Doctor's remarks/interpretations
+    - Method information
+    - Any other structured metadata
+    
+    Works with:
+    - Pathkind, Dr Lal PathLabs, Metropolis, Thyrocare
+    - Apollo, Fortis, AIIMS hospital reports
+    - International lab formats (Quest, LabCorp)
+    - Local diagnostic center formats
+    
+    Returns dict with extracted metadata
     """
-    low, high = normal_range
     
-    if test_name == 'Heart Rate':
-        if value < 30:
-            return "LOW", "severe"
-        elif value < 50:
-            return "LOW", "severe"
-        elif value < 60:
-            deviation = abs(value - low) / low * 100
-            return "LOW", ("moderate" if deviation > 20 else "mild")
-        elif value > 150:
-            return "HIGH", "severe"
-        elif value > 100:
-            deviation = abs(value - high) / high * 100
-            return "HIGH", ("moderate" if deviation > 30 else "mild")
-        else:
-            return "NORMAL", "normal"
-            
-    elif 'PR' in test_name:
-        if value > 300:
-            return "HIGH", "severe"
-        elif value > 200:
-            deviation = (value - high) / high * 100
-            return "HIGH", ("moderate" if deviation > 30 else "mild")
-        elif value < 120:
-            return "LOW", "mild"
-        else:
-            return "NORMAL", "normal"
-            
-    elif 'QRS' in test_name and 'Axis' not in test_name:
-        if value > 160:
-            return "HIGH", "severe"
-        elif value > 120:
-            deviation = (value - high) / high * 100
-            return "HIGH", ("moderate" if deviation > 25 else "mild")
-        else:
-            return "NORMAL", "normal"
-            
-    elif 'QTc' in test_name or ('QT' in test_name and 'c' in test_name):
-        if value > 550:
-            return "HIGH", "severe"
-        elif value > 460:
-            deviation = (value - high) / high * 100
-            return "HIGH", ("moderate" if deviation > 15 else "mild")
-        elif value < 320:
-            return "LOW", "severe"
-        elif value < 340:
-            return "LOW", "mild"
-        else:
-            return "NORMAL", "normal"
+    metadata = {
+        'report_status': None,
+        'clinical_significance': [],  # List of {test_name, significance_text}
+        'methods': {},  # {test_name: method_used}
+        'remarks': [],
+        'doctors': [],
+        'laboratory_info': {},
+        'disclaimers': [],
+    }
     
-    elif 'QT' in test_name:
-        if value > 550:
-            return "HIGH", "severe"
-        elif value > 460:
-            return "HIGH", "moderate"
-        elif value < 320:
-            return "LOW", "severe"
-        else:
-            return "NORMAL", "normal"
+    if not text_content or len(text_content) < 50:
+        return metadata
+    
+    lines = text_content.split('\n')
+    text_lower = text_content.lower()
+    
+    # ===== 1. EXTRACT REPORT STATUS =====
+    status_patterns = [
+        r'Report\s*[Ss]tatus\s*[-–:]\s*(Final|Preliminary|Amended|Corrected|Draft|Verified)',
+        r'Status\s*[-:]\s*(Final|Preliminary|Amended)',
+        r'(Final|Preliminary)\s*[Rr]eport',
+    ]
+    
+    for pattern in status_patterns:
+        match = re.search(pattern, text_content, re.IGNORECASE)
+        if match:
+            metadata['report_status'] = match.group(1).upper()
+            break
+    
+    # ===== 2. EXTRACT CLINICAL SIGNIFICANCE SECTIONS =====
+    # These sections explain what abnormal results mean
+    
+    # Method A: Look for "Clinical Significance:" headers followed by text
+    sig_pattern = r'(?:Clinical\s+[Ss]ignificance|Significance|Interpretation|Remarks?)\s*[:\-]\s*\n?(.*?)(?=(?:Clinical\s+[Ss]ignificance|Significance|Interpretation|Remarks?|Test\s+Name|\Z))'
+    
+    matches = re.findall(sig_pattern, text_content, re.DOTALL | re.IGNORECASE)
+    
+    for i, content in enumerate(matches):
+        # Clean up content
+        clean_content = re.sub(r'\s+', ' ', content.strip())
+        
+        # Filter out very short or header-like content
+        if len(clean_content) > 30 and not clean_content.startswith('---'):
+            # Try to identify which test this belongs to (look backwards in text)
+            metadata['clinical_significance'].append({
+                'section_number': i + 1,
+                'text': clean_content[:800],  # Limit length
+                'char_count': len(clean_content)
+            })
+    
+    # Method B: Also capture multi-line significance blocks
+    # Some reports have large paragraphs explaining tests
+    in_significance_block = False
+    current_block = []
+    current_test_context = ""
+    
+    for line in lines:
+        stripped = line.strip()
+        lower_stripped = stripped.lower()
+        
+        # Detect start of significance section
+        if 'clinical significance' in lower_stripped or lower_stripped.startswith('significance:'):
+            in_significance_block = True
+            # Check if there's a test name before "Clinical Significance"
+            parts = stripped.split('Clinical Significance')
+            if len(parts) > 0 and parts[0].strip():
+                current_test_context = parts[0].strip().rstrip(':').rstrip('-')
+            continue
+        
+        # Detect end of block (next major section)
+        if in_significance_block:
+            if (stripped == '' and len(current_block) > 0) or \
+               lower_stripped.startswith('in case of') or \
+               lower_stripped.startswith('for more info') or \
+               lower_stripped.startswith('note:') or \
+               'customer care' in lower_stripped:
+                
+                # Save the block
+                block_text = ' '.join(current_block).strip()
+                if len(block_text) > 50:  # Only substantial blocks
+                    metadata['clinical_significance'].append({
+                        'context': current_test_context or 'General',
+                        'text': block_text[:800],
+                        'char_count': len(block_text)
+                    })
+                
+                # Reset
+                in_significance_block = False
+                current_block = []
+                current_test_context = ""
+                continue
             
-    elif 'RR' in test_name:
-        if value > 1500:
-            return "HIGH", "moderate"
-        elif value > 1000:
-            return "HIGH", "mild"
-        elif value < 400:
-            return "LOW", "severe"
-        else:
-            return "NORMAL", "normal"
+            # Add line to current block
+            if stripped and not stripped.startswith('==='):
+                current_block.append(stripped)
     
-    elif 'P Duration' in test_name or ('P' in test_name and 'Duration' in test_name):
-        if value > 140:
-            return "HIGH", "moderate"
-        elif value < 60:
-            return "LOW", "mild"
-        else:
-            return "NORMAL", "normal"
+    # Don't forget last block if file ends while still in block
+    if in_significance_block and current_block:
+        block_text = ' '.join(current_block).strip()
+        if len(block_text) > 50:
+            metadata['clinical_significance'].append({
+                'context': current_test_context or 'General',
+                'text': block_text[:800],
+                'char_count': len(block_text)
+            })
     
-    else:
-        # Generic for axis and others
-        if value < low:
-            deviation = abs(value - low) / abs(low) * 100 if low != 0 else 0
-            if deviation > 50:
-                return "LOW", "severe"
-            elif deviation > 25:
-                return "LOW", "moderate"
-            else:
-                return "LOW", "mild"
-        elif value > high:
-            deviation = abs(value - high) / abs(high) * 100 if high != 0 else 0
-            if deviation > 50:
-                return "HIGH", "severe"
-            elif deviation > 25:
-                return "HIGH", "moderate"
-            else:
-                return "HIGH", "mild"
-        else:
-            return "NORMAL", "normal"
-
+    # ===== 3. EXTRACT METHOD INFORMATION =====
+    method_pattern = r'Method\s*[:\-]\s*([^\n]+)'
+    method_matches = re.findall(method_pattern, text_content, re.IGNORECASE)
+    
+    for method in method_matches[:20]:  # Limit to prevent huge lists
+        clean_method = method.strip()
+        if len(clean_method) > 2 and len(clean_method) < 100:
+            # We'd need context to know which test this belongs to
+            # For now, just collect unique methods
+            method_key = clean_method.lower()
+            if method_key not in metadata['methods']:
+                metadata['methods'][method_key] = clean_method
+    
+    # ===== 4. EXTRACT DOCTOR NAMES =====
+    doctor_patterns = [
+        r'(?:Dr\.|Doctor)\s*([A-Z][a-z]+\s+[A-Z][a-z]+)',  # "Dr. Rahul Behl"
+        r'([A-Z][a-z]+\s+[A-Z][a-z]+)\n(?:MD|MBBS|DNB|Senior Consultant)',  # Name followed by qualification
+        r'(Senior Consultant|Consultant|Pathologist|Microbiologist)\s*[:\-]\s*([A-Z][a-z]+\s+[A-Z][a-z]+)',
+    ]
+    
+    for pattern in doctor_patterns:
+        matches = re.findall(pattern, text_content)
+        for match in matches:
+            doctor_name = match if isinstance(match, str) else match[-1]
+            if doctor_name and len(doctor_name) > 3:
+                if doctor_name not in metadata['doctors']:
+                    metadata['doctors'].append(doctor_name)
+    
+    # Limit doctors to reasonable number
+    metadata['doctors'] = metadata['doctors'][:5]
+    
+    # ===== 5. EXTRACT LABORATORY INFO =====
+    lab_patterns = [
+        (r'([A-Za-z\s&]+(?:Diagnostics|Labs?|Laboratory|Pathology))\s*(?:Pvt\.?|Ltd\.?|Private)?', 'lab_name'),
+        (r'(NABL|ISO)\s*(?:Accredited|Certified)', 'accreditation'),
+        (r'Customer Care\s*[:\-]\s*([\d\-\s]+)', 'contact'),
+        (r'(Plot|Door)\s*(No\.?)\s*[\d\w,\s-]+', 'address'),
+    ]
+    
+    for pattern, key in lab_patterns:
+        match = re.search(pattern, text_content, re.IGNORECASE)
+        if match:
+            metadata['laboratory_info'][key] = match.group(1).strip() if match.lastindex else match.group(0).strip()
+    
+    # ===== 6. LIMIT SIZES TO PREVENT BLOAT =====
+    # Keep only top clinical significance entries (most important ones)
+    metadata['clinical_significance'] = metadata['clinical_significance'][:10]
+    
+    # Count total extracted items
+    total_items = (
+        (1 if metadata['report_status'] else 0) +
+        len(metadata['clinical_significance']) +
+        len(metadata['methods']) +
+        len(metadata['doctors'])
+    )
+    
+    metadata['total_extracted'] = total_items
+    
+    return metadata
 
 def _extract_from_ecg_table(text, seen_names, existing):
     """
@@ -3178,37 +3439,104 @@ def upload_and_index(request):
             else:
                 print(f"   ℹ VectorStore skipped (ECG-only doc)")
 
+            # ----------------- PHASE 7: Universal Metadata Extraction -----------------
+            print("\n📍 PHASE 7: Report Metadata Extraction (Universal)")
+            
+            try:
+                report_metadata = extract_report_metadata(text)
+                
+                if report_metadata.get('total_extracted', 0) > 0:
+                    print(f"   ✅ Extracted {report_metadata['total_extracted']} metadata items:")
+                    
+                    if report_metadata.get('report_status'):
+                        print(f"      📋 Status: {report_metadata['report_status']}")
+                    
+                    if report_metadata.get('clinical_significance'):
+                        print(f"      📖 Clinical Significance: {len(report_metadata['clinical_significance'])} sections")
+                    
+                    if report_metadata.get('doctors'):
+                        print(f"      👨‍⚕️ Doctors: {', '.join(report_metadata['doctors'])}")
+                    
+                    # Cache the metadata
+                    cache.set(
+                        f"report_metadata_{session_key}", 
+                        json.dumps(report_metadata, default=str), 
+                        timeout=3600
+                    )
+                else:
+                    print(f"   ℹ No structured metadata found (this is normal for some reports)")
+                    
+            except Exception as meta_err:
+                print(f"   ⚠️ Metadata extraction error (non-fatal): {meta_err}")
+
+            
             # Clear conversation
             clear_conversation(session_key)
 
             # ================================================================
-            # ✅ BUILD RESPONSE FOR NON-ECG DOCUMENTS (THIS WAS MISSING!)
+            # ✅ BUILD RESPONSE FOR NON-ECG DOCUMENTS (FIXED: Status Detection Added!)
             # ================================================================
 
             if document_type != 'ecg_report':
-                # Calculate abnormal count for summary
-                abnormal_count = len([r for r in final_table_data if r.get('status') in ['HIGH', 'LOW']])
+                # 🔥 FIX #1: Calculate status for ALL rows before counting abnormalities!
+                print(f"\n📍 PHASE 6.5: Status Calculation for Upload Response")
                 
-                # Build response based on document type
+                abnormals_found = []
+                for row in final_table_data:
+                    # Skip if already has valid status
+                    if row.get('status') in ['HIGH', 'LOW', 'NORMAL']:
+                        if row.get('status') in ['HIGH', 'LOW']:
+                            abnormals_found.append(row)
+                        continue
+                    
+                    # Calculate status using existing helper functions
+                    test_name = row.get('test', '')
+                    value = row.get('value', '')
+                    ref_range = row.get('range', '')
+                    
+                    # Use your existing status detection functions
+                    row_status, used_range = detect_status_with_fallback(test_name, value, ref_range)
+                    row['status'] = row_status
+                    
+                    if used_range and not ref_range:
+                        row['range'] = used_range
+                        
+                    row['severity'] = calculate_severity(value, row.get('range', ''), row_status)
+                    
+                    if row_status in ['HIGH', 'LOW']:
+                        abnormals_found.append(row)
+                        print(f"   ⚠️ ABNORMAL: {test_name} = {value} [{row_status}]")
+                
+                abnormal_count = len(abnormals_found)
+                
+                # Determine label based on document type
                 if document_type == 'scanned_image':
                     doc_type_label = "Scanned Report"
                 elif document_type == 'digital_text':
                     doc_type_label = "Digital Report"
-                elif document_type == 'graphical_image':
+                elif document_type == 'graphical' or document_type == 'graphical_image':
                     doc_type_label = "Graphical Report"
                 else:
                     doc_type_label = "Medical Report"
                 
+                # Safely get page count
+                try:
+                    pages_analyzed = len(pages_info) if pages_info and isinstance(pages_info, list) else 1
+                except Exception:
+                    pages_analyzed = 1
+                
+                # Build the response dictionary
                 response_data = {
                     "message": f"✅ {doc_type_label} Analyzed Successfully",
-                    "document_type": document_type,
-                    "test_count": actual_test_count,
-                    "abnormal_count": abnormal_count,
-                    "pages_analyzed": len(pages_info) if pages_info else 1,
-                    "extraction_success": actual_test_count > 0,
-                    "has_graph_analysis": bool(graph_analysis_result),
+                    "document_type": str(document_type),
+                    "test_count": int(actual_test_count),
+                    "abnormal_count": int(abnormal_count),
+                    "pages_analyzed": int(pages_analyzed),
+                    "extraction_success": bool(actual_test_count > 0),
+                    "has_graph_analysis": bool(graph_analysis_result) if graph_analysis_result else False,
                 }
                 
+                # Debug output
                 print(f"\n{'='*70}")
                 print(f"✅ UPLOAD COMPLETE ({doc_type_label})")
                 print(f"{'='*70}")
@@ -3216,13 +3544,23 @@ def upload_and_index(request):
                 print(f"   Tests extracted: {actual_test_count}")
                 print(f"   Abnormal values: {abnormal_count}")
                 print(f"   Extraction success: {actual_test_count > 0}")
+                
+                if abnormals_found:
+                    print(f"\n   ⚠️  Abnormalities detected:")
+                    for idx, ab in enumerate(abnormals_found[:10], 1):
+                        print(f"      {idx}. {ab.get('test', 'Unknown')}: "
+                              f"{ab.get('value', 'N/A')} [{ab.get('status', 'UNKNOWN')}]")
+                else:
+                    print(f"\n   ✅ All values within normal range!")
+                
                 print(f"{'='*70}\n")
                 
+                # ✅ THIS IS THE CRITICAL MISSING LINE!
                 return Response(response_data)
 
 
             # ============================================================
-            # SPECIAL HANDLING FOR ECG REPORTS (already exists below this)
+            # SPECIAL HANDLING FOR ECG REPORTS
             # ============================================================
             if document_type == 'ecg_report':
                 ecg_measurement_count = len([r for r in final_table_data 
@@ -3235,10 +3573,10 @@ def upload_and_index(request):
                     "document_type": "ecg_report",
                     "test_count": actual_test_count,
                     "ecg_measurements": ecg_measurement_count,
-                    "pages_analyzed": len(pages_info) if pages_info else 0,
-                    "has_graph_analysis": bool(graph_analysis_result),
+                    "pages_analyzed": len(pages_info) if pages_info and isinstance(pages_info, list) else 0,
+                    "has_graph_analysis": bool(graph_analysis_result) if graph_analysis_result else False,
                     "has_ecg_data": True,
-                    "extraction_success": (actual_test_count > 0),
+                    "extraction_success": bool(actual_test_count > 0),
                 }
                 
                 print(f"\n{'='*70}")
@@ -3253,13 +3591,16 @@ def upload_and_index(request):
 
 
             # ============================================================
-            # UNSUPPORTED FILE TYPE (catch-all)
+            # UNSUPPORTED FILE TYPE (should never reach here now!)
             # ============================================================
             else:
+                print(f"\n⚠️ WARNING: Reached unsupported file type handler")
+                print(f"   document_type = {document_type}")
                 return Response({
-                    "error": "Unsupported file type. Please upload PDF or CSV only.",
-                    "supported_formats": [".pdf", ".csv"],
-                    "received_format": os.path.splitext(file_name)[1] if '.' in file_name else "unknown"
+                    "error": "Unsupported document type.",
+                    "debug_document_type": str(document_type),
+                    "supported_types": ["digital_text", "scanned_image", "graphical", "graphical_image", "ecg_report"],
+                    "suggestion": "Check document type detection logic."
                 }, status=400)
 
 
@@ -3289,6 +3630,180 @@ def upload_and_index(request):
             error_details["suggestion"] = "Processing timed out."
         
         return Response(error_details, status=500)
+
+
+def generate_fallback_detailed_explanation(abnormal_tests, table_rows, question):
+    """Fallback detailed explanation if LLM fails."""
+    
+    lines = []
+    lines.append("# 🔬 Medical Report Analysis — Detailed Findings\n")
+    lines.append(f"\n**Total Tests Analyzed:** {len(table_rows)}")
+    lines.append(f"**Abnormal Values Found:** {len(abnormal_tests)}\n")
+    
+    # Severity grouping
+    severe = [t for t in abnormal_tests if t.get("severity") == "severe"]
+    moderate = [t for t in abnormal_tests if t.get("severity") == "moderate"]
+    mild = [t for t in abnormal_tests if t.get("severity") == "mild"]
+    
+    if severe:
+        lines.append("\n## 🚠️ SEVERE ABNORMALITIES (Immediate Attention Required)\n")
+        for idx, t in enumerate(severe, 1):
+            lines.append(f"\n### {idx}. **{t['test']}** - {t['status']}")
+            lines.append(f"- **Value:** {t['value']} {t.get('unit', '')}")
+            lines.append(f"- **Range:** {t.get('range', 'N/A')}")
+            lines.append(f"- **Severity:** SEVERE")
+            lines.append(f"\n**What it measures:** {generate_simple_definition(t['test'])}")
+            lines.append(f"\n**Why it's critical:** ")
+            lines.append(f"   ⚠️ This level indicates **SEVERE deficiency** that requires immediate investigation.")
+            lines.append(f"   ⚠️ Can indicate life-threatening conditions if untreated.")
+            lines.append(f"\n**Possible Causes (Most Likely First):**")
+            lines.append(f"   1. Acute blood loss (GI bleeding, trauma)")
+            lines.append(f"   2. Severe hemolytic anemia")
+            lines.append(f"   3. Organ failure (kidney/liver)")
+            lines.append(f"   4. Severe infection/sepsis")
+            lines.append(f"\n**🚨 IMMEDIATE ACTIONS REQUIRED:**")
+            lines.append(f"   🏥 **SEE A DOCTOR WITHIN 24-48 HOURS**")
+            lines.append(f"   📞 May require hospitalization")
+            lines.append(f"   📞 Do not ignore - this is serious!")
+            lines.append(f"\n**Prevention (Long-Term):**")
+            lines.append(f"   • Regular monitoring as advised by doctor")
+            lines.append(f"   • Treat underlying condition")
+    
+    if moderate:
+        lines.append(f"\n## 🟠 MODERATE ABNORMALITIES (Important But Not Critical)\n")
+        for idx, t in enumerate(moderate, len(severe)+1):
+            lines.append(f"\n### {idx}. **{t['test']}** - {t['status']}")
+            lines.append(f"- **Value:** {t['value']} {t.get('unit', '')}")
+            lines.append(f"- **Range:** {t.get('range', 'N/A')}")
+            lines.append(f"- **Severity:** MODERATE")
+            lines.append(f"\n**What it measures:** {generate_simple_definition(t['test'])}")
+            lines.append(f"\n**Clinical Significance:** ")
+            lines.append(f"   ⚠️ This abnormality is significant but not immediately dangerous.")
+            lines.append(f"   • Should be investigated within 1-4 weeks")
+            lines.append(f"   • Often indicates developing condition")
+            lines.append(f"\n**Possible Causes:**")
+            lines.append(f"   1. Early-stage nutritional deficiency")
+            lines.append(f"   2. Chronic inflammatory condition")
+            lines.append(f"   3. Medication side effect")
+            lines.append(f"\n**Recommended Actions:**")
+            lines.append(f"   • Schedule appointment with primary care physician")
+            lines.append(f"   • Repeat test in 1-2 weeks after correction")
+            lines.append(f"   • Begin basic supplementation if deficient")
+    
+    if mild:
+        lines.append(f"\n## 🟡 MILD ABNORMALITIES (Monitor Only)\n")
+        for idx, t in enumerate(mild, len(severe)+len(moderate)+1):
+            lines.append(f"\n### {idx}. **{t['test']}** - {t['status']}")
+            lines.append(f"- **Value:** {t['value']} {t.get('unit', '')}")
+            lines.append(f"- **Range:** {t.get('range', 'N/A')}")
+            lines.append(f"- **Severity:** MILD")
+            lines.append(f"\n**Note:** This is mildly outside normal range.")
+            lines.append(f"   Usually corrects itself on retesting.")
+            lines.append(f"   Monitor but don't panic unless worsening.")
+    
+    # Overall assessment
+    lines.append(f"\n---\n")
+    lines.append(f"## 📊 OVERALL ASSESSMENT\n")
+    
+    if len(severe) > 0:
+        lines.append(f"⚠️ **CRITICAL:** {len(severe)} severe abnormality(ies) detected!")
+        lines.append(f"   These require immediate medical attention.")
+    elif len(moderate) > 0:
+        lines.append(f"🟠 **ATTENTION:** {len(moderate)} moderate abnormality(ies).")
+        lines.append(f"   Schedule follow-up within 2-4 weeks.")
+    elif len(mild) > 0:
+        lines.append(f"🟡 **INFO:** {len(mild)} mild deviation(s) found.")
+        lines.append(f"   These are usually benign variations.")
+    else:
+        lines.append(f"✅ **GOOD NEWS:** All values within acceptable ranges!")
+    
+    lines.append(f"\n---\n")
+    lines.append(f"*This is educational information only.*")
+    lines.append(f"*Consult a healthcare professional for personalized advice.*")
+    lines.append(f"*Do not start treatment without proper diagnosis.*")
+    
+    return "\n".join(lines)
+
+
+def generate_simple_definition(test_name):
+    """Generate simple definition for common lab tests."""
+    definitions = {
+        "hemoglobin": "A protein in red blood cells that carries oxygen throughout the body",
+        "hb": "Short for Hemoglobin - oxygen-carrying protein in blood",
+        "packed cell volume": "Percentage of blood volume made up of red blood cells",
+        "pcv": "Short for Packed Cell Volume - same as Packed Cell Volume",
+        "wbc": "White Blood Cells - infection-fighting immune system cells",
+        "tlc": "Total Leukocyte Count - total WBC count (same as WBC)",
+        "rbc": "Red Blood Cells - oxygen-carrying cells",
+        "platelet": "Platelets - cell fragments that help blood clotting",
+        "creatinine": "Waste product filtered by kidneys; indicates kidney function",
+        "glucose": "Blood sugar level; energy source for body's cells",
+        "tsh": "Thyroid Stimulating Hormone; regulates thyroid function",
+        "alt": "Alanine Aminotransferase; liver enzyme, elevated in liver damage",
+        "ast": "Aspartate Aminotransferase; liver enzyme, elevated in liver damage",
+        "potassium": "Electrolyte mineral essential for heart/rhythm function",
+        "sodium": "Electrolyte mineral essential for fluid balance and nerve function",
+        "calcium": "Mineral essential for bones, muscles, nerves, clotting",
+        "iron": "Mineral essential for hemoglobin production and oxygen transport",
+        "vitamin d": "Fat-soluble vitamin for bone health and calcium absorption",
+        "vitamin b12": "B-complex vitamin essential for nerve function and RBC production",
+        "folate": "B-vitamin essential for DNA synthesis and cell division",
+        "uric acid": "Waste product from purine metabolism; high levels cause gout",
+        "bilirubin": "Yellow pigment from red blood cell breakdown; indicates liver/gallbladder issues",
+        "albumin": "Protein made by liver; indicates nutritional status",
+        "globulin": "Immune system proteins; elevated in chronic inflammation/infection",
+        "ldl": "Low-density lipoprotein ('bad' cholesterol); high levels increase heart disease risk",
+        "hdl": "High-density lipoprotein ('good' cholesterol); removes excess cholesterol",
+        "triglycerides":"Blood fat; elevated with diet/metabolic syndrome",
+        "hba1c": "3-month average blood glucose; indicator of diabetes control",
+        "platelet count": "Cell fragments that form clots; essential for stopping bleeding",
+        "mpv": "Mean Platelet Volume; average size of platelets",
+        "rdw": "Red Cell Distribution Width; variation in RBC size (high = mixed size population)",
+        "mcv": "Mean Corpuscular Volume; average size of red blood cells",
+        "mch": "Mean Corpuscular Hemoglobin; avg hemoglobin per RBC",
+        "mchc": "Mean Corpuscular Hemoglobin Concentration; hemoglobin density in RBCs",
+        "esr": "Erythrocyte Sedimentation Rate; inflammation marker (not always reliable)",
+        "crp": "C-Reactive Protein; inflammation marker (more reliable than ESR)",
+        "pt": "Prothrombin Time; blood clotting time (international normalized ratio)",
+        "inr": "International Normalized Ratio; standardized PT comparison",
+        "aptt": "Activated Partial Thromboplastin Time; another clotting time measure",
+        "fibrinogen": "Protein converted to fibrin during clot formation",
+        "d-dimer": "D-Dimer; marker for blood clots (deep vein thrombosis)",
+        "procalcitonin": "Calcium regulator hormone; bone health marker",
+        "vitamin d3": "Active form of vitamin D; calcium absorption regulator",
+        "free t4": "Active thyroid hormone; regulates metabolism",
+        "free t3": "Active thyroid hormone; controls metabolism",
+        "igf-1": "Insulin-like Growth Factor-1; growth and metabolism regulator",
+        "ferritin": "Iron storage protein; low levels indicate iron deficiency",
+        "transferrin saturation": "Percentage of iron-binding sites occupied; more accurate than ferritin alone",
+        "tsh receptor antibody": "Autoantibody in Hashimoto's thyroiditis diagnosis",
+        "anti-tpo": "Thyroid peroxidase antibodies; autoimmune thyroid marker",
+        "hbsag": "Hepatitis B surface antigen; hepatitis B virus marker",
+        "anti-hcv": "Hepatitis C virus antibody; hepatitis C exposure marker",
+        "vdrl": "Venereal Disease Research Lab test; syphilis screening test",
+        "hiv": "Human Immunodeficiency Virus; attacks CD4 T-cells",
+        "blood group": "ABO/Rh classification system for transfusion compatibility",
+        "rh factor": "Rh(D) antigen; Rh positive/negative status" }
+    
+    # Try exact match first
+    if test_name.lower() in definitions:
+        return definitions[test_name.lower()]
+    
+    # Try fuzzy match
+    best_match = None
+    best_score = 0
+    
+    for name, defn in definitions.items():
+        score = fuzzy_match_score(test_name, name)
+        if score > best_score:
+            best_score = score
+            best_match = defn
+    
+    if best_match and best_score >= 0.6:
+        return definitions[best_match]
+    
+    # Generic fallback
+    return f"A laboratory test that measures a specific substance or health marker."
 
 
 # ===========================================================================
@@ -3386,25 +3901,53 @@ def query_document(request):
                 is_ecg_or_graphical = True
                 print(f"   📊 Document type: GRAPHICAL IMAGE")
         
-        # Secondary check
-        if not is_ecg_or_graphical and graph_analysis_cached:
-            real_lab_tests = [t for t in table_rows if t.get("status") in ["HIGH", "LOW", "NORMAL"]]
-            if len(real_lab_tests) < 3 and len(table_rows) > 0:
+        # ✅ ENHANCED: Smarter document type classification
+        # Check if we have REAL lab data (even if some pages have graphics)
+        real_lab_tests = [t for t in table_rows if t.get("status") in ["HIGH", "LOW", "NORMAL"]]
+        
+        # Count tests that look like genuine laboratory values
+        genuine_lab_keywords = [
+            'hemoglobin', 'wbc', 'rbc', 'platelet', 'glucose', 'creatinine', 
+            'tsh', 'thyroid', 'cholesterol', 'triglycerides', 'alt', 'ast',
+            'hematocrit', 'mcv', 'mch', 'potassium', 'sodium', 'calcium',
+            'urea', 'bilirubin', 'albumin', 'protein', 'uric acid'
+        ]
+        
+        genuine_lab_count = sum(
+            1 for t in real_lab_tests 
+            if any(kw in t.get('test', '').lower() for kw in genuine_lab_keywords)
+        )
+        
+        # If we have 3+ genuine lab tests, this is a LAB REPORT (even with graphics on some pages)
+        if genuine_lab_count >= 3 and not is_ecg_or_graphical:
+            document_type = "lab_report"
+            print(f"   🩸 Document type: LAB REPORT ({len(table_rows)} tests, {genuine_lab_count} genuine lab values)")
+            # Override any previous "graphical" classification
+            is_ecg_or_graphical = False
+        
+        # Only classify as garbage if we have almost no valid data
+        elif not is_ecg_or_graphical and len(table_rows) >= 3:
+            if len(real_lab_tests) < 2:  # Less than 2 valid tests with status
+                # Check for garbage indicators
                 garbage_indicators = 0
                 for t in table_rows[:10]:
                     test_name = t.get('test', '')
                     value = t.get('value', '')
-                    if len(test_name) < 5:
+                    if len(test_name) < 4:
                         garbage_indicators += 1
-                    if not re.match(r'^[\d.]+$', str(value)):
+                    if not re.match(r'^[\d.]+$', str(value)) and t.get('status') == 'UNKNOWN':
                         garbage_indicators += 1
-                if garbage_indicators > len(table_rows[:10]) * 0.6:
+                
+                if garbage_indicators > len(table_rows[:10]) * 0.7:
                     document_type = "garbage_extraction"
                     is_ecg_or_graphical = True
-        
-        if not is_ecg_or_graphical and len(table_rows) >= 3:
-            document_type = "lab_report"
-            print(f"   🩸 Document type: LAB REPORT ({len(table_rows)} tests)")
+                else:
+                    # Has some data but low confidence - still treat as lab report
+                    document_type = "lab_report"
+                    print(f"   🩸 Document type: LAB REPORT (low confidence, {len(table_rows)} tests)")
+            else:
+                document_type = "lab_report"
+                print(f"   🩸 Document type: LAB REPORT ({len(table_rows)} tests)")
     
     # Final consistency check
     if document_type == 'ecg_report':
@@ -3526,8 +4069,55 @@ def query_document(request):
     # ================================================================
     # Build clinical context (AFTER doc_type_context is safely defined)
     # ================================================================
+    
+    # ✅ NEW: Load universal report metadata
+    metadata_json = cache.get(f"report_metadata_{session_key}")
+    metadata_context = ""
+    
+    if metadata_json:
+        try:
+            metadata = json.loads(metadata_json)
+            
+            context_parts = []
+            
+            # Report Status
+            if metadata.get('report_status'):
+                context_parts.append(
+                    f"\n📋 **REPORT STATUS: {metadata['report_status'].upper()}**\n"
+                )
+            
+            # Clinical Significance (VERY IMPORTANT for detailed answers!)
+            if metadata.get('clinical_significance'):
+                sig_parts = ["\n📖 **CLINICAL SIGNIFICANCE & INTERPRETATIONS (from report):**\n"]
+                
+                for item in metadata['clinical_significance'][:8]:  # Top 8 sections
+                    context = item.get('context', '')
+                    text = item.get('text', '')
+                    
+                    if context and context != 'General':
+                        sig_parts.append(f"- **{context}:**\n{text}\n")
+                    else:
+                        sig_parts.append(f"{text}\n")
+                
+                context_parts.append('\n'.join(sig_parts))
+            
+            # Doctors
+            if metadata.get('doctors'):
+                context_parts.append(
+                    f"\n👨‍⚕️ **Reporting Doctors:** {', '.join(metadata['doctors'])}\n"
+                )
+            
+            metadata_context = '\n'.join(context_parts)
+            
+            print(f"   ✅ Loaded {metadata.get('total_extracted', 0)} metadata items for context")
+            
+        except Exception as e:
+            print(f"   ⚠️ Error loading metadata: {e}")
+    
+    # Build clinical context (AFTER doc_type_context is safely defined)
     clinical_context = ""
     clinical_data_json = cache.get(f"latest_clinical_data_{session_key}")
+    
     if clinical_data_json:
         try:
             clinical_data = json.loads(clinical_data_json)
@@ -3555,13 +4145,11 @@ def query_document(request):
         except (json.JSONDecodeError, Exception) as e:
             print(f"⚠️ Clinical context parse error (non-fatal): {e}")
             clinical_context = ""
-    # Resolve follow-up context
+    
+    # Resolve follow-up context (✅ FIXED: Correct arguments now!)
     resolved_test, resolved_row, effective_question = resolve_follow_up_context(
-        question, table_rows, history
+        question, table_rows, history  # ✅ CORRECT!
     )
-    if resolved_test:
-        q = effective_question.lower()
-        print(f"🔗 Follow-up resolved: '{question}' → '{resolved_test}'")
 
     # ==================================================================
     # HANDLER 1: Signal / ECG Analysis (Enhanced Fallback Chain)
@@ -3694,18 +4282,583 @@ def query_document(request):
         add_to_conversation(session_key, "assistant", f"[Showed table with {len(table_rows)} tests]")
         return Response({"type": "table", "data": table_rows, "history": history})
 
+    
     # ==================================================================
-    # HANDLER 3: Abnormal Values Only
+    # 🆕 HANDLER 2.5: Summary / Overview (ENHANCED: Delegates to LLM for detail)
     # ==================================================================
-    ABNORMAL_KEYWORDS = [
-        "abnormal", "out of range", "not normal", "which tests are high",
-        "which tests are low", "what is abnormal", "show abnormal",
+    # NOTE: Now provides quick overview BUT allows LLM to elaborate
+    # ==================================================================
+    
+    SUMMARY_KEYWORDS = [
+        "summary", "summarize", "summarise", "overview", "brief", 
+        "key findings", "main points", "tl;dr", "tl;dr",
+        "give me summary", "what's the summary", "report summary",
+        "complete summary", "full summary", "overall",
     ]
-    if any(w in q for w in ABNORMAL_KEYWORDS):
+    if any(w in q for w in SUMMARY_KEYWORDS):
+        print(f"   📋 SUMMARY HANDLER TRIGGERED")
+        
+        # Check if user wants DETAILED summary (keywords indicating depth)
+        detail_keywords = ["detail", "detailed", "comprehensive", "complete", "full", 
+                          "in depth", "explain", "elaborate", "everything", "all tests"]
+        wants_detailed = any(dw in q for dw in detail_keywords)
+        
+        if wants_detailed and len(table_rows) > 0:
+            # ✅ ENHANCED: Delegate to LLM for detailed, intelligent summaries
+            print(f"   🧠 DELEGATING TO LLM for detailed summary ({len(table_rows)} tests)")
+            
+            # Build comprehensive context with ALL tests
+            all_tests_context = []
+            all_tests_context.append("**COMPLETE LABORATORY DATA:**\n")
+            all_tests_context.append(f"Total Tests: {len(table_rows)}\n")
+            
+            # Group by category for better organization
+            categories = {
+                'Complete Blood Count (CBC)': [],
+                'Liver Function': [],
+                'Kidney Function': [],
+                'Blood Sugar/Glucose': [],
+                'Thyroid': [],
+                'Urine Analysis': [],
+                'Serology/Other': []
+            }
+            
+            for row in table_rows:
+                test_lower = row['test'].lower()
+                
+                if any(kw in test_lower for kw in ['hemoglobin', 'wbc', 'rbc', 'pcv', 'hematocrit', 'mcv', 
+                                                    'mch', 'mchc', 'platelet', 'neutrophil', 'lymphocyte', 
+                                                    'eosinophil', 'monocyte', 'basophil', 'absolute']):
+                    categories['Complete Blood Count (CBC)'].append(row)
+                elif any(kw in test_lower for kw in ['alt', 'ast', 'alp', 'ggtp', 'bilirubin', 'albumin', 
+                                                    'total protein', 'globulin']):
+                    categories['Liver Function'].append(row)
+                elif any(kw in test_lower for kw in ['creatinine', 'urea', 'bun', 'gfr', 'uric acid', 
+                                                    'potassium', 'sodium', 'chloride']):
+                    categories['Kidney Function'].append(row)
+                elif any(kw in test_lower for kw in ['glucose', 'hba1c', 'blood sugar', 'fasting']):
+                    categories['Blood Sugar/Glucose'].append(row)
+                elif any(kw in test_lower for kw in ['tsh', 't3', 't4', 'thyroid']):
+                    categories['Thyroid'].append(row)
+                elif any(kw in test_lower for kw in ['pus cell', 'epithelial', 'specific gravity', 
+                                                    'urobilinogen', 'cast', 'crystal', 'bacteria']):
+                    categories['Urine Analysis'].append(row)
+                else:
+                    categories['Serology/Other'].append(row)
+            
+            # Build categorized display
+            for cat_name, tests in categories.items():
+                if tests:
+                    all_tests_context.append(f"\n**{cat_name}:**")
+                    for row in tests:
+                        status_icon = "✅" if row['status'] == 'NORMAL' else "⚠️" if row['status'] in ['HIGH', 'LOW'] else "❓"
+                        arrow = " ↑" if row['status'] == 'HIGH' else " ↓" if row['status'] == 'LOW' else ""
+                        sev = f" [{row.get('severity', '').upper()}]" if row.get('severity') and row['severity'] != 'normal' else ""
+                        all_tests_context.append(
+                            f"  {status_icon} {row['test']}: {row['value']} {row.get('unit', '')}{arrow} "
+                            f"(Ref: {row.get('range', 'N/A')}){sev}"
+                        )
+            
+            # Detect patterns for context
+            patterns = detect_cross_test_patterns(table_rows)
+            pattern_text = ""
+            if patterns:
+                pattern_text = "\n\n**DETECTED MEDICAL PATTERNS:**\n"
+                for p in patterns[:3]:
+                    pattern_text += f"- {p['pattern_name']}: {', '.join(p['matched_tests'])}\n"
+                    pattern_text += f"  Explanation: {p['explanation']}\n"
+            
+            # Health score
+            health_text = ""
+            if len(table_rows) >= 3:
+                score_result = compute_health_score(table_rows)
+                if score_result.get('score'):
+                    health_text = f"\n**OVERALL HEALTH SCORE: {score_result['score']}/100 — {score_result['status']}**\n"
+            
+            # Enhanced prompt for detailed summary
+            detailed_prompt = f"""Generate a COMPREHENSIVE, CLINICALLY-DETAILED summary of this medical report.
+
+REQUIREMENTS:
+1. **List EVERY single test** with its value, unit, reference range, and status
+2. **Group tests logically** (CBC together, metabolic panel together, etc.)
+3. For each ABNORMAL value, provide:
+   - What the test measures
+   - Why this value matters clinically
+   - Possible causes (common ones first)
+   - What the patient should do next
+4. Identify any PATTERNS across multiple abnormal values
+5. Provide an OVERALL assessment (not just individual values)
+6. Use clear, patient-friendly language but include medical terminology in parentheses
+7. End with SPECIFIC recommendations (follow-up tests, lifestyle changes, when to see a doctor)
+
+FORMAT:
+- Use markdown headers (##) for sections
+- Use bullet points for readability
+- Bold important values
+- Include severity indicators (🔴 Severe, 🟠 Moderate, 🟡 Mild)
+
+{chr(10).join(all_tests_context)}
+{pattern_text}
+{health_text}
+
+User's specific request: "{question}" """
+            
+            # Call LLM with enhanced prompt
+            answer = call_llm(
+                [
+                    {"role": "system", "content": (
+                        "You are an expert clinical laboratory analyst and medical communicator. "
+                        "Generate thorough, accurate, and empathetic medical report summaries. "
+                        "Always prioritize patient safety and recommend professional medical follow-up for abnormalities."
+                    )},
+                    {"role": "user", "content": detailed_prompt}
+                ],
+                temperature=0.4,  # Slightly higher for more creative/complete responses
+                max_tokens=2000,  # Allow longer responses for detail
+            )
+            
+            if not answer:
+                # Fallback to basic summary if LLM fails
+                abnormal_tests = [r for r in table_rows if r["status"] in ["HIGH", "LOW"]]
+                normal_count = len([r for r in table_rows if r["status"] == "NORMAL"])
+                answer = (
+                    f"**Medical Report Summary**\n\n"
+                    f"Total Tests: {len(table_rows)} | Normal: {normal_count} | Abnormal: {len(abnormal_tests)}\n\n"
+                    f"**Abnormal Values:**\n"
+                )
+                for t in abnormal_tests:
+                    answer += f"- **{t['test']}**: {t['value']} {t.get('unit','')} ({t['status']}, ref: {t.get('range','N/A')})\n"
+                if not abnormal_tests:
+                    answer += "All values within normal range.\n"
+                answer += "\n*Detailed analysis unavailable. Please try again.*"
+            
+            add_to_conversation(session_key, "user", question)
+            add_to_conversation(session_key, "assistant", f"[Generated detailed LLM summary for {len(table_rows)} tests]")
+            
+            return Response({
+                "type": "text",
+                "answer": answer,
+                "abnormal_count": len([r for r in table_rows if r["status"] in ["HIGH", "LOW"]]),
+                "total_tests": len(table_rows),
+                "used_llm": True,
+                "history": history
+            })
+        
+        else:
+            # Quick summary (original behavior for simple "summary" requests)
+            print(f"   📊 Generating quick summary template")
+            
+            abnormal_tests = [r for r in table_rows if r["status"] in ["HIGH", "LOW"]]
+            normal_tests = [r for r in table_rows if r["status"] == "NORMAL"]
+            unknown_tests = [r for r in table_rows if r["status"] == "UNKNOWN"]
+            
+            summary_lines = []
+            summary_lines.append(f"**📊 Medical Report Summary**\n")
+            summary_lines.append(f"**Total Tests Analyzed:** {len(table_rows)}")
+            summary_lines.append(f"- ✅ Normal: {len(normal_tests)}")
+            summary_lines.append(f"- ⚠️ Abnormal: {len(abnormal_tests)}")
+            summary_lines.append(f"- ❓ Unknown: {len(unknown_tests)}")
+            
+            if abnormal_tests:
+                summary_lines.append(f"\n**⚠️ ABNORMAL VALUES ({len(abnormal_tests)} found):**\n")
+                
+                sev_order = {"severe": 0, "moderate": 1, "mild": 2, "unknown": 3}
+                abnormal_tests.sort(key=lambda x: sev_order.get(x.get("severity", "unknown"), 3))
+                
+                for idx, test in enumerate(abnormal_tests, 1):
+                    arrow = "↑" if test["status"] == "HIGH" else "↓"
+                    sev = test.get("severity", "")
+                    sev_emoji = {"severe": "🔴", "moderate": "🟠", "mild": "🟡"}.get(sev, "⚠️")
+                    
+                    summary_lines.append(
+                        f"{idx}. {sev_emoji} **{test['test']}**\n"
+                        f"   - Value: **{test['value']}** {test.get('unit', '')}\n"
+                        f"   - Status: {test['status']} ({arrow})\n"
+                        f"   - Reference Range: {test.get('range', 'N/A')}\n"
+                        f"   - Severity: {sev.title() if sev else 'Unknown'}"
+                    )
+                
+                if len(abnormal_tests) >= 2:
+                    patterns = detect_cross_test_patterns(table_rows)
+                    if patterns:
+                        summary_lines.append(f"\n**🔗 Detected Patterns:**")
+                        for p in patterns[:2]:
+                            summary_lines.append(
+                                f"- **{p['pattern_name']}**: {', '.join(p['matched_tests'])}"
+                            )
+                            summary_lines.append(f"  _{p['explanation']}_")
+            else:
+                summary_lines.append(f"\n✅ **All values are within normal range!**")
+            
+            if len(table_rows) >= 3:
+                score_result = compute_health_score(table_rows)
+                if score_result.get("score"):
+                    summary_lines.append(f"\n**Health Score:** {score_result['score']}/100 — {score_result['status']}")
+            
+            answer = "\n".join(summary_lines)
+            
+            add_to_conversation(session_key, "user", question)
+            add_to_conversation(session_key, "assistant", f"[Generated summary with {len(abnormal_tests)} abnormalities]")
+            
+            return Response({
+                "type": "text",
+                "answer": answer,
+                "abnormal_count": len(abnormal_tests),
+                "abnormal_details": abnormal_tests,
+                "history": history
+            })
+    # ==================================================================
+    # HANDLER 3 & 4: UNIVERSAL MULTI-INTENT ABNORMALITY HANDLER ✅
+    # Handles ANY combination of: show/explain/reason/prevention/symptoms/treatment/...
+    # ==================================================================
+    
+    # ===== INTENT DETECTION DICTIONARY =====
+    # Each group represents a DIFFERENT user intent
+    INTENT_KEYWORDS = {
+        # Intent Group 1: Display/List (wants to SEE data)
+        "DISPLAY": [
+            "show", "display", "list", "what are", "which tests", 
+            "tell me", "give me", "abnormal values", "abnormalities",
+            "all abnormal", "every abnormal", "show me"
+        ],
+        
+        # Intent Group 2: Explain/Define (wants to UNDERSTAND)
+        "EXPLAIN": [
+            "explain", "define", "definition", "meaning", "what does", 
+            "what is", "describe", "tell me about", "understand",
+            "in detail", "detailed", "breakdown", "elaborate"
+        ],
+        
+        # Intent Group 3: Causes/Reasons (wants to know WHY)
+        "CAUSES": [
+            "reason", "why", "cause", "possible cause", "what could cause",
+            "reason behind", "why is my", "how did this happen",
+            "etiology", "pathophysiology", "trigger"
+        ],
+        
+        # Intent Group 4: Prevention/Treatment (wants to know HOW TO FIX)
+        "PREVENTION": [
+            "prevention", "prevent", "how to treat", "treatment", "fix",
+            "cure", "remedy", "solution", "improve", "correct",
+            "what should i do", "how to fix", "how to increase", "how to decrease",
+            "diet", "food", "eat", "lifestyle", "exercise", "supplement"
+        ],
+        
+        # Intent Group 5: Symptoms/Clinical (wants to know WHAT TO EXPECT)
+        "SYMPTOMS": [
+            "symptom", "sign", "feel", "experience", "clinical",
+            "manifestation", "indication", "warning sign", "red flag",
+            "when to worry", "when to see doctor", "danger sign"
+        ],
+        
+        # Intent Group 6: Analysis/Opinion (wants EXPERT ASSESSMENT)
+        "ANALYSIS": [
+            "analysis", "analyze", "assessment", "opinion", "evaluate",
+            "interpretation", "medical interpretation", "clinical opinion",
+            "comprehensive", "full analysis", "complete picture",
+            "overall", "big picture", "summary", "summarize"
+        ],
+        
+        # Intent Group 7: Pattern Recognition (wants CONNECTIONS)
+        "PATTERNS": [
+            "pattern", "relation", "connection", "correlation", "link",
+            "related", "together", "combined", "interaction",
+            "multiple", "all together", "holistic"
+        ]
+    }
+    
+    # ===== MULTI-INTENT DETECTION ENGINE =====
+    def detect_user_intents(query_text):
+        """
+        Detect ALL intent categories present in user's query.
+        Returns: dict {intent_name: [matched_keywords], ...}
+        """
+        q = query_text.lower()
+        detected_intents = {}
+        
+        for intent_group, keywords in INTENT_KEYWORDS.items():
+            matched = [kw for kw in keywords if kw in q]
+            if matched:
+                detected_intents[intent_group] = matched
+        
+        return detected_intents
+    
+    # Detect intents for THIS query
+    user_intents = detect_user_intents(q)
+    num_intents_detected = len(user_intents)
+    
+    print(f"   🔍 INTENT DETECTION: Found {num_intents_detected} intent(s): {list(user_intents.keys())}")
+    
+    # Also check for ABNORMALITY-related keywords (base requirement)
+    has_abnormality_keywords = any(w in q for w in [
+        "abnormal", "high", "low", "out of range", "not normal",
+        "problem", "issue", "wrong", "concern", "worry"
+    ])
+    
+    # ===== ROUTING DECISION =====
+    
+    # Scenario A: Multiple intents detected (COMPREHENSIVE MODE) ✅
+    if num_intents_detected >= 2 or (num_intents_detected >= 1 and len(q.split()) > 10):
+        print(f"   📖 COMPREHENSIVE MULTI-INTENT MODE TRIGGERED ({num_intents_detected} intents)")
+        
         abnormal = [r for r in table_rows if r["status"] in ["HIGH", "LOW"]]
+        
         if not abnormal:
-            msg = "Great news! All available lab values are within normal range."
-            guidance = get_light_user_guidance("all_normal")
+            msg = (
+                "✅ Great news! All available lab values are within normal range.\n\n"
+                "**No abnormalities detected.**\n\n"
+                "If you're feeling unwell despite normal labs, consider:\n"
+                "• Viral infections (flu, dengue, COVID-19)\n"
+                "• Early-stage iron deficiency (before Hb drops)\n"
+                "• Subclinical nutrient deficiencies\n"
+            )
+            add_to_conversation(session_key, "user", question)
+            add_to_conversation(session_key, "assistant", msg)
+            return Response({"type": "text", "answer": msg, "abnormal_count": 0, "history": history})
+        
+        # Build DYNAMIC prompt based on WHICH intents were detected
+        print(f"   📊 Building CUSTOM context for {len(abnormal)} abnormal value(s)")
+        print(f"   🎯 Active Intents: {list(user_intents.keys())}")
+        
+        # Categorize abnormalities by severity
+        severe_abnormals = [r for r in abnormal if r.get("severity") == "severe"]
+        moderate_abnormals = [r for r in abnormal if r.get("severity") == "moderate"]
+        mild_abnormals = [r for r in abnormal if r.get("severity") == "mild"]
+        
+        # Build rich context
+        full_context_parts = []
+        
+        # Section 1: Abnormal values
+        full_context_parts.append("**⚠️ ABNORMAL VALUES DETECTED:**\n")
+        for idx, ab in enumerate(severe_abnormals + moderate_abnormals + mild_abnormals):
+            sev_icon = {"severe": "🔴", "moderate": "🟠", "mild": "🟡"}
+            arrow = "↑HIGH" if ab["status"] == "HIGH" else "↓LOW"
+            
+            full_context_parts.append(
+                f"{sev_icon.get(ab.get('severity', 'mild'), '🟡')} **{idx+1}. {ab['test']}**\n"
+                f"   • Value: **{ab['value']}** {ab.get('unit', '')}\n"
+                f"   • Status: {ab['status']} ({arrow})\n"
+                f"   • Reference Range: {ab.get('range', 'N/A')}\n"
+                f"   • Severity: {ab.get('severity', 'unknown').upper()}\n\n"
+            )
+        
+        # Section 2: Normal values (simplified grouping)
+        normal_tests = [r for r in table_rows if r["status"] == "NORMAL"]
+        if normal_tests:
+            full_context_parts.append("\n**✅ NORMAL VALUES (Reference):**\n")
+            try:
+                from collections import defaultdict
+                normal_categories = defaultdict(list)
+                
+                for r in normal_tests:
+                    test_lower = r['test'].lower()
+                    
+                    if any(kw in test_lower for kw in ['hemoglobin', 'hb ', 'pcv', 'rbc', 'mcv', 'mch', 'mchc', 'rdw']):
+                        cat = "Blood Cells & Hemoglobin"
+                    elif any(kw in test_lower for kw in ['wbc', 'tlc', 'dlc']):
+                        cat = "White Blood Cells"
+                    elif any(kw in test_lower for kw in ['platelet', 'plt']):
+                        cat = "Platelets"
+                    elif any(kw in test_lower for kw in ['glucose', 'hba1c', 'sugar']):
+                        cat = "Glucose & Diabetes"
+                    elif any(kw in test_lower for kw in ['lipid', 'cholesterol', 'ldl', 'hdl', 'trigly']):
+                        cat = "Lipid Profile"
+                    elif any(kw in test_lower for kw in ['liver', 'alt', 'ast', 'sgot', 'sgpt', 'bilirubin', 'albumin']):
+                        cat = "Liver Function"
+                    elif any(kw in test_lower for kw in ['kidney', 'creatinine', 'urea', 'uric acid', 'electrolyte', 'sodium', 'potassium']):
+                        cat = "Kidney Function & Electrolytes"
+                    elif any(kw in test_lower for kw in ['thyroid', 'tsh', 't3', 't4']):
+                        cat = "Thyroid Function"
+                    elif any(kw in test_lower for kw in ['iron', 'ferritin', 'tibc']):
+                        cat = "Iron Studies"
+                    elif any(kw in test_lower for kw in ['vitamin', 'vit ', 'b12', 'folate', 'd3']):
+                        cat = "Vitamins"
+                    elif any(kw in test_lower for kw in ['crp', 'esr', 'inflammation']):
+                        cat = "Inflammation Markers"
+                    else:
+                        cat = "Other Tests"
+                    
+                    normal_categories[cat].append(r)
+                
+                for cat_name, tests in normal_categories.items():
+                    full_context_parts.append(f"\n**{cat_name}:**\n")
+                    for r in tests[:6]:
+                        full_context_parts.append(f"  • {r['test']}: {r['value']} {r.get('unit', '')}\n")
+                        
+            except Exception as e:
+                for r in normal_tests[:8]:
+                    full_context_parts.append(f"  • {r['test']}: {r['value']} {r.get('unit', '')}\n")
+        
+        # Build DYNAMIC requirements based on detected intents
+        dynamic_requirements = []
+        
+        if "DISPLAY" in user_intents:
+            dynamic_requirements.append(
+                "- **List/Display**: Clearly show each abnormal value with exact numbers, units, and ranges"
+            )
+        
+        if "EXPLAIN" in user_intents:
+            dynamic_requirements.append(
+                "- **Explain/Define**: What each test measures in SIMPLE language (no medical jargon)"
+            )
+        
+        if "CAUSES" in user_intents:
+            dynamic_requirements.append(
+                "- **Causes/Reasons**: Possible reasons WHY each value is abnormal (ranked by likelihood, most common first)"
+            )
+        
+        if "PREVENTION" in user_intents:
+            dynamic_requirements.append(
+                "- **Prevention/Treatment**: How to correct it through diet, lifestyle changes, supplements, medical treatment"
+            )
+        
+        if "SYMPTOMS" in user_intents:
+            dynamic_requirements.append(
+                "- **Symptoms/Clinical Signs**: What patient might feel or experience; RED FLAGS requiring immediate care"
+            )
+        
+        if "ANALYSIS" in user_intents:
+            dynamic_requirements.append(
+                "- **Overall Analysis**: Big-picture assessment, health score interpretation, priority ranking of issues"
+            )
+        
+        if "PATTERNS" in user_intents:
+            dynamic_requirements.append(
+                "- **Pattern Recognition**: How abnormalities relate to each other; underlying conditions that explain multiple findings"
+            )
+        
+        # Default requirements if somehow none matched (shouldn't happen)
+        if not dynamic_requirements:
+            dynamic_requirements = [
+                "- Provide comprehensive explanation covering: values, meanings, causes, prevention, and follow-up"
+            ]
+        
+        # Build final DYNAMIC prompt
+        detailed_prompt = f"""Generate a COMPREHENSIVE medical explanation addressing the user's SPECIFIC multi-part question.
+
+⚠️ CRITICAL: The user asked {num_intents_detected} DIFFERENT things in ONE question. You MUST address ALL of them!
+
+📋 USER'S DETECTED INTENTS:
+{chr(10).join([f'✅ {intent}: {", ".join(keywords[:3])}' for intent, keywords in user_intents.items()])}
+
+📝 REQUIREMENTS FOR EACH ABNORMAL VALUE ({len(abnormal)} found):
+{chr(10).join(dynamic_requirements)}
+
+🏗️ RESPONSE STRUCTURE (Follow this EXACTLY):
+
+# 🔬 Medical Report Analysis — Comprehensive Findings
+
+## ⚠️ ABNORMAL VALUES OVERVIEW
+[Brief summary table/list of all abnormalities]
+
+---
+
+## 📊 DETAILED ANALYSIS OF EACH ABNORMALITY
+
+### 1. [Test Name] - [Value] ([Status]) [Severity Icon]
+**Basic Information:**
+- Value: [exact] | Range: [reference] | Unit: [unit]
+- Status: HIGH/LOW | Severity: Severe/Moderate/Mild
+
+[Include sections for EACH detected intent:]
+
+{'## 🔍 POSSIBLE CAUSES/REASONS' if 'CAUSES' in user_intents else ''}
+[List 4-6 possible causes ranked by likelihood]
+
+{'## 💡 PREVENTION & TREATMENT' if 'PREVENTION' in user_intents else ''}
+[Dietary changes, lifestyle modifications, supplements, medical treatments]
+
+{'## ⚠️ SYPTOMS & WARNING SIGNS' if 'SYMPTOMS' in user_intents else ''}
+[What patient might experience; when to seek immediate care]
+
+[Repeat for EACH abnormality...]
+
+---
+
+{'## 🔗 PATTERN RECOGNITION' if 'PATTERNS' in user_intents or len(abnormal) > 1 else ''}
+[How abnormalities relate; possible underlying conditions]
+
+{'## 📈 OVERALL HEALTH ASSESSMENT' if 'ANALYSIS' in user_intents else ''}
+[Big picture; priority actions; health score context]
+
+{'## 🚨 RED FLAGS - IMMEDIATE CARE' if 'SYMPTOMS' in user_intents else ''}
+[When to go to ER vs. schedule appointment]
+
+---
+*Disclaimer: Educational information only. Consult healthcare professional.*
+
+USER'S EXACT QUESTION: "{question}"
+
+AVAILABLE LAB DATA:
+{chr(10).join(full_context_parts)}
+
+🎯 QUALITY STANDARDS:
+- Address EVERY intent the user asked for (check above list!)
+- Don't skip any section even if data is limited
+- Use markdown headers, bullet points, bold text for readability
+- Be empathetic but medically accurate
+- Give SPECIFIC actionable advice (not vague generalizations)
+- Include realistic timelines (e.g., "re-test in 4 weeks", not "follow up sometime")
+"""
+        
+        # Call LLM with appropriate token limit based on complexity
+        estimated_tokens = 2000 + (num_intents_detected * 300) + (len(abnormal) * 400)
+        
+        answer = call_llm(
+            [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are an expert clinical laboratory analyst and compassionate health educator.\n\n"
+                        "🎯 SUPERPOWER: You can handle MULTI-PART questions seamlessly.\n"
+                        "When users ask 5 things at once ('show X, explain Y, reason Z, prevent W, symptoms V'), "
+                        "you address ALL parts thoroughly without missing any.\n\n"
+                        "📋 WORKFLOW:\n"
+                        "1. Identify ALL intents in user's question\n"
+                        "2. For each abnormality, cover ALL requested aspects\n"
+                        "3. Structure response clearly with headers\n"
+                        "4. End with overall assessment and red flags\n\n"
+                        "🚫 NEVER:\n"
+                        "- Skip an intent because 'it's too much'\n"
+                        "- Give generic 1-line answers\n"
+                        "- Ignore part of the question\n"
+                        "- Use overly technical jargon without explanation\n"
+                    )
+                },
+                {
+                    "role": "user",
+                    "content": detailed_prompt
+                }
+            ],
+            temperature=0.4,
+            max_tokens=min(estimated_tokens, 3500),  # Cap at 3500 tokens
+        )
+        
+        if not answer:
+            answer = generate_fallback_detailed_explanation(abnormal, table_rows, question)
+        
+        add_to_conversation(session_key, "user", question)
+        add_to_conversation(session_key, "assistant", f"[Comprehensive analysis: {num_intents_detected} intents, {len(abnormal)} abnormalities]")
+        
+        return Response({
+            "type": "text",
+            "answer": answer,
+            "abnormal_count": len(abnormal),
+            "abnormal_details": abnormal,
+            "used_llm": True,
+            "intents_detected": list(user_intents.keys()),
+            "history": history,
+            "response_mode": "comprehensive_multi_intent"
+        })
+    
+    # Scenario B: Single intent - Quick Table Mode (only DISPLAY intent, no explanations)
+    elif "DISPLAY" in user_intents and num_intents_detected == 1:
+        print(f"   📊 QUICK TABLE MODE (single display intent only)")
+        abnormal = [r for r in table_rows if r["status"] in ["HIGH", "LOW"]]
+        
+        if not abnormal:
+            msg = "✅ Great news! All available lab values are within normal range."
+            guidance = get_light_user_guidance("all_normal") if 'get_light_user_guidance' in dir() else ""
             add_to_conversation(session_key, "user", question)
             add_to_conversation(session_key, "assistant", msg + guidance)
             return Response(format_final_response("text", msg), status=200)
@@ -3713,9 +4866,16 @@ def query_document(request):
         add_to_conversation(session_key, "user", question)
         add_to_conversation(session_key, "assistant", f"[Showed {len(abnormal)} abnormal tests]")
         return Response({"type": "table", "data": abnormal, "history": history})
+    
+    # Scenario C: Has abnormality keywords but no clear intent structure → Default to comprehensive
+    elif has_abnormality_keywords:
+        print(f"   📖 DEFAULT COMPREHENSIVE MODE (abnormality keywords present)")
+        # Re-trigger comprehensive mode with default intents
+        # (This catches edge cases we might have missed)
+        pass  # Will fall through to next handler or unified LLM
 
     # ==================================================================
-    # HANDLER 4: Health Score
+    # HANDLER 4.1: Health Score
     # ==================================================================
     SCORE_KEYWORDS = [
         "health score", "how healthy", "am i healthy", "overall health",
@@ -3962,17 +5122,62 @@ def query_document(request):
         "normal": "",
     }
 
+    # Build enhanced system prompt with MAXIMUM FLEXIBILITY
+    base_guidelines = (
+        "You are an expert clinical laboratory analyst and compassionate health communicator. "
+        "Your role is to help patients FULLY understand their medical reports.\n\n"
+        
+        "🎯 CORE MISSION:\n"
+        "- Answer ANY question about the uploaded medical report comprehensively\n"
+        "- Provide clinical context, not just raw numbers\n"
+        "- Empower patients to have informed discussions with their doctors\n\n"
+        
+        "🔴 CRITICAL RULES FOR ABNORMAL VALUES:\n"
+        "- If there are ANY abnormal (HIGH/LOW) values relevant to the question, you MUST discuss them\n"
+        "- Never ignore abnormalities when explaining related tests\n"
+        "- For each abnormal value: explain WHAT it measures, WHY it matters, possible CAUSES, and NEXT STEPS\n"
+        "- Use severity indicators: 🔴 Severe | 🟠 Moderate | 🟡 Mild\n\n"
+        
+        "📋 RESPONSE ADAPTATION (Match user's intent):\n"
+        "- **Summary requests**: Group by category (CBC, metabolic, etc.), list ALL tests, highlight patterns\n"
+        "- **Specific test questions**: Deep dive into that test + related tests (e.g., if asked about hemoglobin, also mention RBC, MCV, MCH)\n"
+        "- **'Why' questions**: Explain pathophysiology in simple terms, common causes, risk factors\n"
+        "- **'What should I do' questions**: Provide actionable recommendations (lifestyle, follow-up tests, when to seek care)\n"
+        "- **Comparison questions**: Track changes, trends, clinical significance of differences\n\n"
+        
+        "✅ QUALITY STANDARDS:\n"
+        "- Use ALL available data from the report (don't skip tests unless irrelevant)\n"
+        "- Include units and reference ranges for every value mentioned\n"
+        "- Use markdown formatting (headers, bullets, bold) for readability\n"
+        "- Balance medical accuracy with patient-friendly language\n"
+        "- Always include disclaimer: 'This is educational, not a diagnosis. Consult your doctor.'\n"
+        "- If information is missing, state clearly what's needed rather than guessing\n\n"
+        
+        "🚫 NEVER DO:\n"
+        "- Don't provide definitive diagnoses (use 'suggests', 'may indicate', 'consistent with')\n"
+        "- Don't ignore abnormal values to avoid alarming the patient\n"
+        "- Don't invent values or ranges not in the provided data\n"
+        "- Don't use overly technical jargon without explanation\n"
+    )
+
+    # Add mandatory abnormality context
+    abnormal_context = ""
+    abnormal_tests = [r for r in table_rows if r["status"] in ["HIGH", "LOW"]]
+    if abnormal_tests:
+        abnormal_lines = ["\n🔴 MANDATORY: You MUST mention these ABNORMAL values in your response:"]
+        for t in abnormal_tests:
+            arrow = "↑HIGH" if t["status"] == "HIGH" else "↓LOW"
+            abnormal_lines.append(
+                f"- {t['test']}: {t['value']} {t.get('unit','')} ({arrow}, "
+                f"ref: {t.get('range','N/A')}, severity: {t.get('severity','unknown')})"
+            )
+        abnormal_context = "\n".join(abnormal_lines) + "\n"
+
     system_prompt = (
-        "You are a knowledgeable, empathetic medical report assistant. "
-        "Your role is to help users understand their medical reports in clear, plain language.\n\n"
-        "GUIDELINES:\n"
-        "- Answer naturally and conversationally.\n"
-        "- Use the structured lab data (including severity) as your primary source of truth.\n"
-        "- Do not fabricate values. If information is unavailable, say so.\n"
-        "- Format with markdown where it improves readability.\n"
-        "- Keep tone supportive and non-alarmist while being medically accurate.\n"
+        base_guidelines
         + MODE_INSTRUCTIONS.get(response_mode, "")
-        + (doc_type_context if is_ecg_or_graphical else "")  # 🔥 Inject ECG/Image context
+        + (doc_type_context if is_ecg_or_graphical else "")
+        + abnormal_context  # 🔥 Inject mandatory abnormality list!
     )
 
     table_context = build_table_context_string(table_rows)
@@ -4036,16 +5241,108 @@ def query_document(request):
         f"{question} [Specifically about: {resolved_test}]"
         if resolved_test else question
     )
+    
+    # ✅ ENHANCED: Build comprehensive user message with organized context
+    
+    # Categorize tests for better LLM comprehension
+    def categorize_tests_for_llm(rows):
+        """Group tests into clinical categories for clearer presentation."""
+        categories = {
+            '🩸 Complete Blood Count (CBC)': [],
+            '🫀 Metabolic/Lipid Panel': [],
+            '🫘 Liver Function Tests (LFT)': [],
+            '🫁 Kidney Function': [],
+            '🍬 Blood Sugar/Diabetes': [],
+            '🦋 Thyroid Function': [],
+            '🫳 Urine Analysis': [],
+            '🔬 Serology/Infectious Disease': [],
+            '📊 Other Tests': []
+        }
+        
+        for row in rows:
+            test_lower = row.get('test', '').lower()
+            
+            if any(kw in test_lower for kw in ['hemoglobin', 'hb', 'wbc', 'tlc', 'rbc', 'pcv', 'hematocrit', 
+                                                    'mcv', 'mch', 'mchc', 'rdw', 'platelet', 'neutrophil', 
+                                                    'lymphocyte', 'eosinophil', 'monocyte', 'basophil', 'absolute']):
+                categories['🩸 Complete Blood Count (CBC)'].append(row)
+            elif any(kw in test_lower for kw in ['cholesterol', 'ldl', 'hdl', 'triglycerides', 'vldl', 
+                                                    'lipid profile']):
+                categories['🫀 Metabolic/Lipid Panel'].append(row)
+            elif any(kw in test_lower for kw in ['alt', 'sgpt', 'ast', 'sgot', 'alp', 'ggtp', 
+                                                    'bilirubin', 'albumin', 'total protein', 'globulin']):
+                categories['🫘 Liver Function Tests (LFT)'].append(row)
+            elif any(kw in test_lower for kw in ['creatinine', 'urea', 'bun', 'gfr', 'uric acid', 
+                                                    'potassium', 'k ', 'sodium', 'na ', 'chloride', 
+                                                    'bicarbonate', 'calcium', 'ca ', 'phosphorus', 'magnesium']):
+                categories['🫁 Kidney Function'].append(row)
+            elif any(kw in test_lower for kw in ['glucose', 'hba1c', 'a1c', 'blood sugar', 'fasting', 
+                                                    'random glucose']):
+                categories['🍬 Blood Sugar/Diabetes'].append(row)
+            elif any(kw in test_lower for kw in ['tsh', 't3', 't4', 'thyroid', 'free t3', 'free t4']):
+                categories['🦋 Thyroid Function'].append(row)
+            elif any(kw in test_lower for kw in ['pus cell', 'epithelial', 'specific gravity', 'rbc (micro)', 
+                                                    'cast', 'crystal', 'bacteria', 'urobilinogen', 
+                                                    'ketone', 'protein (urine)', 'glucose (urine)']):
+                categories['🫳 Urine Analysis'].append(row)
+            elif any(kw in test_lower for kw in ['vdrl', 'hiv', 'hcv', 'hbsag', 'pregnancy', 'blood group', 
+                                                    'elisa', 'pcr', 'rapid test']):
+                categories['🔬 Serology/Infectious Disease'].append(row)
+            else:
+                categories['📊 Other Tests'].append(row)
+        
+        # Format only non-empty categories
+        formatted = ""
+        for cat_name, tests in categories.items():
+            if tests:
+                formatted += f"\n{cat_name}:\n"
+                for row in tests:
+                    status_icon = "✅" if row.get('status') == 'NORMAL' else "⚠️" if row.get('status') in ['HIGH', 'LOW'] else "❓"
+                    arrow = " ↑HIGH" if row.get('status') == 'HIGH' else " ↓LOW" if row.get('status') == 'LOW' else ""
+                    sev = f" [{row.get('severity', '').upper()}]" if row.get('severity') and row.get('severity') != 'normal' else ""
+                    formatted += f"  {status_icon} {row['test']}: {row['value']} {row.get('unit', '')}{arrow} (Ref: {row.get('range', 'N/A')}){sev}\n"
+        
+        return formatted
+    
+    # Build enhanced context with categorization
+    if response_mode != "concise":
+        # Use categorized format for better readability
+        categorized_data = categorize_tests_for_llm(table_rows)
+        enhanced_table_context = f"""**TOTAL TESTS: {len(table_rows)}**
+
+**STATUS BREAKDOWN:**
+- Normal: {len([r for r in table_rows if r.get('status') == 'NORMAL'])}
+- Abnormal: {len([r for r in table_rows if r.get('status') in ['HIGH', 'LOW']])}
+- Unknown: {len([r for r in table_rows if r.get('status') == 'UNKNOWN'])}
+
+**CATEGORIZED RESULTS:**{categorized_data}"""
+    else:
+        # Keep compact format for concise mode
+        abnormal = [r for r in table_rows if r["status"] in ["HIGH", "LOW"]]
+        normal_count = len([r for r in table_rows if r["status"] == "NORMAL"])
+        unknown_count = len([r for r in table_rows if r["status"] == "UNKNOWN"])
+        
+        enhanced_table_context = (
+            f"Total tests: {len(table_rows)}\n"
+            f"Normal: {normal_count}, Abnormal: {len(abnormal)}, Unknown: {unknown_count}\n"
+        )
+        if abnormal:
+            enhanced_table_context += "\nAbnormal tests:\n"
+            for r in abnormal:
+                arrow = "↑" if r["status"] == "HIGH" else "↓"
+                enhanced_table_context += f"- {r['test']}: {r['value']} {r['unit']} {arrow} (ref: {r['range'] or 'N/A'})\n"
 
     user_message = (
-        f"{doc_type_context}\n\n"  # 🔥 Add this line
-        f"--- STRUCTURED LAB DATA ---\n{table_context}\n\n"
+        f"{doc_type_context}\n\n"
+        f"--- COMPREHENSIVE LAB DATA ---\n{enhanced_table_context}\n\n"
         f"{pattern_context}\n\n"
         f"{followup_context}\n\n"
         f"{clinical_context}"
-        f"--- DOCUMENT CONTEXT ---\n{vector_context or 'No additional document text available.'}\n\n"
+        f"{metadata_context}"
+        f"--- ADDITIONAL DOCUMENT CONTEXT ---\n{vector_context or 'No additional document text available.'}\n\n"
         f"--- CONVERSATION HISTORY ---\n{history_text}\n\n"
-        f"--- USER'S QUESTION ---\n{effective_q}"
+        f"--- ❓ USER'S QUESTION ---\n{effective_q}\n\n"
+        f"INSTRUCTIONS: Answer the user's question using ALL the data above. Be thorough, accurate, and helpful."
     )
 
     answer = call_llm(
@@ -4085,3 +5382,5 @@ def query_document(request):
 @api_view(["GET"])
 def ui(request):
     return render(request, "rag/index.html")
+
+

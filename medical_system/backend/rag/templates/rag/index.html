@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+{% comment %} <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -7,69 +7,227 @@
     <style>
         :root {
             --primary-color: #007bff;
+            --primary-dark: #0056b3;
             --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            --bg-color: #f4f7f9;
+            --bg-color: #f0f2f5;
             --container-bg: #ffffff;
             --border-color: #e0e0e0;
             --text-color: #333;
-            --user-msg-bg: #e1f5fe;
+            --user-msg-bg: #007bff;
             --bot-msg-bg: #f1f3f4;
             --status-high: #d32f2f;
-            --status-low: #1976d2; /* Blue as requested */
+            --status-low: #1976d2;
             --status-normal: #388e3c;
             --status-unknown: #666;
+            --pdf-width: 380px;
+            --sidebar-width: 320px;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
         }
 
         body {
             font-family: var(--font-family);
             background-color: var(--bg-color);
-            margin: 0;
-            padding: 20px;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-        }
-
-        #chat-container {
-            width: 100%;
-            max-width: 800px;
-            background: var(--container-bg);
-            border-radius: 12px;
-            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
-            display: flex;
-            flex-direction: column;
-            height: 90vh;
+            height: 100vh;
             overflow: hidden;
         }
 
-        #header {
-            padding: 20px;
-            border-bottom: 1px solid var(--border-color);
-            text-align: center;
-            background-color: #fafafa;
+        /* ==================== RESIZABLE PANELS ==================== */
+        .resizable-container {
+            display: flex;
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
         }
 
-        #header h1 {
+        .resize-handle {
+            width: 6px;
+            background: #e0e0e0;
+            cursor: col-resize;
+            flex-shrink: 0;
+            transition: background 0.2s;
+            position: relative;
+            z-index: 100;
+        }
+
+        .resize-handle:hover {
+            background: linear-gradient(180deg, #667eea, #764ba2);
+            box-shadow: 0 0 10px rgba(102, 126, 234, 0.3);
+        }
+
+        .resize-handle::after {
+            content: '⋮⋮';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: transparent;
+            font-size: 12px;
+            letter-spacing: -2px;
+            transition: color 0.2s;
+            writing-mode: vertical-rl;
+        }
+
+        .resize-handle:hover::after {
+            color: white;
+        }
+
+        .pdf-section {
+            min-width: 250px;
+            max-width: 600px;
+            background: #1a1a2e;
+            display: flex;
+            flex-direction: column;
+            border-right: 1px solid var(--border-color);
+        }
+
+        .dashboard-section {
+            min-width: 250px;
+            max-width: 500px;
+            background: #ffffff;
+            border-left: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .chat-section {
+            flex: 1;
+            min-width: 350px;
+            display: flex;
+            flex-direction: column;
+            background: var(--bg-color);
+        }
+
+        /* ==================== LEFT SECTION - PDF VIEWER ==================== */
+        .pdf-header {
+            padding: 16px 20px;
+            background: #16213e;
+            color: white;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .pdf-header h3 {
             margin: 0;
-            font-size: 24px;
-            color: var(--text-color);
+            font-size: 14px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
 
-        #header p {
-            margin: 5px 0 0;
-            color: #666;
+        .upload-btn-wrapper {
+            position: relative;
         }
 
-        #message-container {
-            flex-grow: 1;
+        .upload-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 600;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .upload-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        #file-input-hidden {
+            display: none;
+        }
+
+        .pdf-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 15px;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            background: #0f3460;
+        }
+
+        .pdf-container iframe {
+            width: 100%;
+            height: 100%;
+            min-height: 500px;
+            border: none;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+        }
+
+        .pdf-placeholder {
+            color: rgba(255,255,255,0.6);
+            text-align: center;
+            padding: 60px 30px;
+        }
+
+        .pdf-placeholder-icon {
+            font-size: 72px;
+            margin-bottom: 20px;
+            opacity: 0.5;
+        }
+
+        .pdf-placeholder h4 {
+            font-size: 18px;
+            margin-bottom: 10px;
+            color: rgba(255,255,255,0.8);
+        }
+
+        .pdf-placeholder p {
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        /* ==================== MIDDLE SECTION - CHAT ==================== */
+        .chat-header {
+            padding: 20px 24px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            box-shadow: 0 2px 10px rgba(102, 126, 234, 0.3);
+        }
+
+        .chat-header h1 {
+            font-size: 22px;
+            font-weight: 700;
+            margin-bottom: 6px;
+        }
+
+        .chat-header p {
+            font-size: 13px;
+            opacity: 0.9;
+            margin: 0;
+        }
+
+        .message-container {
+            flex: 1;
             padding: 20px;
             overflow-y: auto;
+            background: #fafbfc;
+            scroll-behavior: smooth;
         }
 
         .message {
-            margin-bottom: 20px;
+            margin-bottom: 18px;
             display: flex;
+            animation: fadeIn 0.3s ease-in;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
         }
 
         .message.user {
@@ -81,290 +239,4271 @@
         }
 
         .content {
-            max-width: 85%;
-            padding: 12px 18px;
+            max-width: 88%;
+            padding: 14px 20px;
             border-radius: 18px;
-            line-height: 1.5;
+            line-height: 1.6;
+            font-size: 14px;
+            word-wrap: break-word;
         }
 
         .message.user .content {
-            background-color: var(--user-msg-bg);
-            color: #01579b;
-            border-bottom-right-radius: 4px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-bottom-right-radius: 6px;
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.25);
         }
 
         .message.bot .content {
-            background-color: var(--bot-msg-bg);
-            color: #3c4043;
-            border-bottom-left-radius: 4px;
+            background: white;
+            color: #333;
+            border-bottom-left-radius: 6px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+            border: 1px solid #eee;
         }
 
+        /* Response Cards in Chat */
         .response-card {
-            background: #ffffff;
+            background: #fafbfc;
             border: 1px solid #e8e8e8;
-            border-radius: 8px;
+            border-radius: 12px;
             padding: 16px;
-            margin-top: 10px;
-            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+            margin-top: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.04);
         }
 
         .results-table {
             width: 100%;
             border-collapse: collapse;
-            margin-top: 15px;
-            font-size: 14px;
+            font-size: 13px;
+            margin-top: 8px;
         }
 
         .results-table th,
         .results-table td {
-            padding: 12px 15px;
+            padding: 11px 14px;
             text-align: left;
-            border-bottom: 1px solid var(--border-color);
+            border-bottom: 1px solid #f0f0f0;
         }
 
         .results-table th {
-            background-color: #f8f9fa;
-            font-weight: 600;
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            font-weight: 700;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #555;
+        }
+
+        .results-table tbody tr {
+            transition: background 0.2s;
         }
 
         .results-table tbody tr:hover {
-            background-color: #f5f5f5;
+            background: #f8f9ff;
         }
 
-        .status-high { color: var(--status-high); font-weight: 600; }
-        .status-low { color: var(--status-low); font-weight: 600; }
-        .status-normal { color: var(--status-normal); font-weight: 600; }
-        .status-unknown { color: var(--status-unknown); }
-
-        .health-score-card {
-            text-align: center;
-            padding: 25px;
-            border: 1px solid var(--border-color);
-            border-radius: 10px;
-            background: linear-gradient(135deg, #f5f7fa 0%, #eef2f7 100%);
-        }
-
-        .health-score-card .score {
-            font-size: 48px;
+        .status-high { 
+            color: #c62828; 
             font-weight: 700;
-            margin: 10px 0;
-        }
-
-        .health-score-card .status {
-            font-size: 20px;
-            color: #555;
-            margin-bottom: 20px;
-            font-weight: 500;
-        }
-
-        .progress-bar {
-            width: 80%;
-            margin: 0 auto;
-            background-color: #e0e0e0;
+            background: #ffebee;
+            padding: 3px 10px;
             border-radius: 5px;
+            font-size: 11px;
+        }
+        .status-low { 
+            color: #1565c0; 
+            font-weight: 700;
+            background: #e3f2fd;
+            padding: 3px 10px;
+            border-radius: 5px;
+            font-size: 11px;
+        }
+        .status-normal { 
+            color: #2e7d32; 
+            font-weight: 700;
+            background: #e8f5e9;
+            padding: 3px 10px;
+            border-radius: 5px;
+            font-size: 11px;
+        }
+        .status-unknown { 
+            color: #757575; 
+            background: #f5f5f5;
+            padding: 3px 10px;
+            border-radius: 5px;
+            font-size: 11px;
+        }
+
+        /* Health Score Card in Chat */
+        .health-score-inline {
+            text-align: center;
+            padding: 20px;
+            background: linear-gradient(135deg, #f5f7fa 0%, #e4e8eb 100%);
+            border-radius: 10px;
+            margin-top: 10px;
+        }
+
+        .health-score-inline .score-big {
+            font-size: 48px;
+            font-weight: 800;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .health-score-inline .score-status-text {
+            font-size: 18px;
+            font-weight: 600;
+            color: #444;
+            margin: 8px 0;
+        }
+
+        .health-score-inline .progress-bar-container {
+            width: 70%;
             height: 10px;
+            background: #ddd;
+            border-radius: 5px;
+            margin: 15px auto 0;
             overflow: hidden;
         }
 
-        .progress-bar-inner {
+        .health-score-inner-bar {
             height: 100%;
             border-radius: 5px;
-            transition: width 0.5s ease-in-out;
+            transition: width 1s ease-out;
         }
 
-        #input-container {
+        /* Input Area */
+        .input-container {
             border-top: 1px solid var(--border-color);
-            padding: 20px;
-            background-color: #fafafa;
+            padding: 18px 24px;
+            background: white;
         }
 
-        #upload-form, #query-form {
+        .query-form {
             display: flex;
-            gap: 10px;
+            gap: 12px;
+            align-items: center;
         }
 
-        #query-input, #file-input {
+        #query-input {
             flex-grow: 1;
-            padding: 12px;
-            border: 1px solid #ccc;
-            border-radius: 20px;
-            font-size: 16px;
+            padding: 14px 22px;
+            border: 2px solid #e0e0e0;
+            border-radius: 28px;
+            font-size: 14px;
+            transition: all 0.3s;
+            background: #fafbfc;
         }
 
-        button {
-            padding: 12px 20px;
+        #query-input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.15);
+            background: white;
+        }
+
+        #query-input:disabled {
+            background: #f0f0f0;
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+
+        .send-btn {
+            padding: 14px 28px;
             border: none;
-            border-radius: 20px;
-            background-color: var(--primary-color);
+            border-radius: 28px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
             cursor: pointer;
-            font-weight: bold;
-            font-size: 16px;
-            transition: background-color 0.2s;
+            font-weight: 700;
+            font-size: 14px;
+            transition: all 0.3s;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.35);
         }
 
-        button:hover {
-            background-color: #0056b3;
+        .send-btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.45);
         }
 
-        #status-message {
+        .send-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+
+        /* ==================== QUICK PROMPT BUTTONS ==================== */
+        .quick-prompts-container {
+            padding: 12px 24px 14px;
+            background: white;
+            border-top: 1px solid #f0f0f0;
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .quick-prompt-btn {
+            padding: 7px 16px;
+            border: 1.5px solid #e0e0e0;
+            border-radius: 20px;
+            background: white;
+            color: #555;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.25s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .quick-prompt-btn:hover {
+            border-color: #667eea;
+            color: #667eea;
+            background: #f8f9ff;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.15);
+        }
+
+        .quick-prompt-btn:active {
+            transform: translateY(0) scale(0.97);
+        }
+
+        .quick-prompt-btn .qp-icon {
+            font-size: 13px;
+        }
+
+        /* ==================== RIGHT SECTION - DASHBOARD ==================== */
+        .dashboard-header {
+            padding: 20px;
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            color: white;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            box-shadow: 0 4px 15px rgba(17, 153, 142, 0.3);
+        }
+
+        .dashboard-header h2 {
+            font-size: 17px;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .dashboard-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        /* Dashboard Cards */
+        .dash-card {
+            background: #fafbfc;
+            border: 1px solid #e8e8e8;
+            border-radius: 14px;
+            overflow: hidden;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.04);
+        }
+
+        .dash-card-header {
+            padding: 14px 18px;
+            background: white;
+            border-bottom: 1px solid #eee;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .dash-card-header h4 {
+            font-size: 13px;
+            font-weight: 700;
+            color: #444;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .dash-card-badge {
+            font-size: 11px;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-weight: 700;
+        }
+
+        .badge-abnormal {
+            background: #ffebee;
+            color: #c62828;
+        }
+
+        .badge-normal {
+            background: #e8f5e9;
+            color: #2e7d32;
+        }
+
+        .badge-score {
+            background: #e3f2fd;
+            color: #1565c0;
+        }
+
+        .dash-card-body {
+            padding: 14px;
+            max-height: 220px;
+            overflow-y: auto;
+        }
+
+        /* Custom Scrollbar for Dashboard */
+        .dash-card-body::-webkit-scrollbar {
+            width: 5px;
+        }
+
+        .dash-card-body::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 10px;
+        }
+
+        .dash-card-body::-webkit-scrollbar-thumb {
+            background: #ccc;
+            border-radius: 10px;
+        }
+
+        .dash-card-body::-webkit-scrollbar-thumb:hover {
+            background: #999;
+        }
+
+        /* Health Score Display */
+        .health-score-display {
             text-align: center;
-            margin-top: 10px;
-            font-weight: bold;
-            height: 20px;
+            padding: 20px 15px;
         }
-        .status-success { color: var(--status-normal); }
-        .status-error { color: var(--status-high); }
+
+        .score-circle-container {
+            width: 130px;
+            height: 130px;
+            margin: 0 auto 15px;
+            position: relative;
+        }
+
+        .score-svg {
+            width: 130px;
+            height: 130px;
+            transform: rotate(-90deg);
+        }
+
+        .score-bg {
+            fill: none;
+            stroke: #e0e0e0;
+            stroke-width: 10;
+        }
+
+        .score-progress {
+            fill: none;
+            stroke-width: 10;
+            stroke-linecap: round;
+            transition: stroke-dashoffset 1s ease-in-out;
+        }
+
+        .score-center-text {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+        }
+
+        .score-value-big {
+            font-size: 36px;
+            font-weight: 800;
+            color: #333;
+            line-height: 1;
+        }
+
+        .score-max-label {
+            font-size: 14px;
+            color: #888;
+            font-weight: 600;
+        }
+
+        .score-status-text-dash {
+            font-size: 16px;
+            font-weight: 700;
+            margin-top: 8px;
+            padding: 6px 14px;
+            border-radius: 20px;
+            display: inline-block;
+        }
+
+        .score-subtext {
+            font-size: 12px;
+            color: #999;
+            margin-top: 6px;
+        }
+
+        /* Value List Items */
+        .value-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        .value-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 11px 14px;
+            margin-bottom: 8px;
+            background: white;
+            border-radius: 10px;
+            border: 1px solid #eee;
+            font-size: 13px;
+            transition: all 0.2s;
+        }
+
+        .value-item:hover {
+            transform: translateX(4px);
+            box-shadow: 0 3px 10px rgba(0,0,0,0.08);
+            border-color: #ddd;
+        }
+
+        .value-item:last-child {
+            margin-bottom: 0;
+        }
+
+        .value-left {
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            min-width: 0;
+        }
+
+        .value-test-name {
+            font-weight: 700;
+            color: #333;
+            font-size: 13px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .value-range {
+            font-size: 11px;
+            color: #999;
+            margin-top: 2px;
+        }
+
+        .value-right {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-left: 12px;
+        }
+
+        .value-number {
+            font-weight: 800;
+            font-size: 15px;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .value-unit {
+            font-size: 11px;
+            color: #888;
+            font-weight: 600;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 30px 20px;
+            color: #aaa;
+        }
+
+        .empty-state-icon {
+            font-size: 40px;
+            margin-bottom: 12px;
+            opacity: 0.6;
+        }
+
+        .empty-state-text {
+            font-size: 13px;
+            line-height: 1.5;
+        }
+
+        .more-indicator {
+            text-align: center;
+            padding: 10px;
+            color: #aaa;
+            font-size: 12px;
+            font-style: italic;
+            border-top: 1px dashed #eee;
+            margin-top: 8px;
+        }
+
+        /* Markdown Formatting */
+        .markdown-content strong {
+            color: #222;
+        }
+        
+        .markdown-content hr {
+            border: none;
+            border-top: 2px solid #eee;
+            margin: 15px 0;
+        }
+
+        .markdown-content ul, .markdown-content ol {
+            margin: 10px 0;
+            padding-left: 20px;
+        }
+
+        .markdown-content li {
+            margin: 5px 0;
+        }
     </style>
 </head>
 <body>
 
-    <div id="chat-container">
-        <div id="header">
-            <h1>Medical Report Assistant</h1>
-            <p>Upload a PDF and ask questions about your lab results.</p>
+<div class="resizable-container" id="main-layout">
+    
+    <!-- ==================== LEFT: PDF VIEWER ==================== -->
+    <div class="pdf-section">
+        <div class="pdf-header">
+            <h3>📄 Document Viewer</h3>
+            <div class="upload-btn-wrapper">
+                <button class="upload-btn" onclick="document.getElementById('file-input-hidden').click()">
+                    📤 Upload PDF
+                </button>
+                <input type="file" id="file-input-hidden" name="file" accept=".pdf">
+            </div>
         </div>
-        <div id="message-container">
-            <!-- Messages will be appended here -->
-        </div>
-        <div id="input-container">
-            <form id="upload-form">
-                <input type="file" id="file-input" name="file" accept=".pdf" required>
-                <button type="submit">Upload & Process</button>
-            </form>
-            <form id="query-form" style="display:none;">
-                <input type="text" id="query-input" placeholder="Ask a question (e.g., 'show all tests')" required>
-                <button type="submit">Send</button>
-            </form>
-            <div id="status-message"></div>
+        <div class="pdf-container" id="pdf-viewer">
+            <div class="pdf-placeholder" id="pdf-placeholder">
+                <div class="pdf-placeholder-icon">📋</div>
+                <h4>No PDF Uploaded Yet</h4>
+                <p>Click "Upload PDF" above to load<br>your medical report for analysis</p>
+            </div>
         </div>
     </div>
 
-    <script>
-        const uploadForm = document.getElementById('upload-form');
-        const queryForm = document.getElementById('query-form');
-        const messageContainer = document.getElementById('message-container');
-        const statusMessage = document.getElementById('status-message');
+    <!-- RESIZE HANDLE: Between PDF & Chat -->
+    <div class="resize-handle" data-resize="pdf" title="Drag to resize PDF viewer"></div>
 
-        uploadForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const formData = new FormData(uploadForm);
-            statusMessage.textContent = 'Processing PDF...';
-            statusMessage.className = 'status-info';
+    <!-- ==================== MIDDLE: CHAT ==================== -->
+    <div class="chat-section">
+        <div class="chat-header">
+            <h1>🏥 Medical Report AI Assistant</h1>
+            <p>Upload a PDF report • Ask questions • Get instant analysis</p>
+        </div>
+        
+        <div class="message-container" id="message-container">
+            <!-- Welcome Message -->
+            <div class="message bot">
+                <div class="content">
+                    👋 <strong>Welcome!</strong> I'm your medical report assistant.<br><br>
+                    📌 <strong>How to use me:</strong><br>
+                    ️⃣ Click <strong>"Upload PDF"</strong> on the left panel<br>
+                    ️⃣ Ask questions or use quick buttons below<br>
+                    📊 Your health dashboard will appear on the right →<br><br>
+                    <em style="color:#666;">Note: This is for educational purposes only. Always consult a doctor for medical advice.</em>
+                </div>
+            </div>
+        </div>
+        
+        <div class="input-container">
+            <form class="query-form" id="query-form">
+                <input type="text" id="query-input" placeholder="Upload a PDF first, then ask me anything..." disabled>
+                <button type="submit" class="send-btn" id="send-btn" disabled>Send ➤</button>
+            </form>
+            
+            <!-- Quick Prompt Buttons -->
+            <div class="quick-prompts-container" id="quick-prompts" style="display:none;">
+                <button class="quick-prompt-btn" data-query="show all tests">
+                    <span class="qp-icon">📊</span> All Tests
+                </button>
+                <button class="quick-prompt-btn" data-query="show abnormal values">
+                    <span class="qp-icon">⚠️</span> Abnormal
+                </button>
+                <button class="quick-prompt-btn" data-query="what is my health score">
+                    <span class="qp-icon">🎯</span> Health Score
+                </button>
+                <button class="quick-prompt-btn" data-query="give me a summary of this report">
+                    <span class="qp-icon">📋</span> Summary
+                </button>
+                <button class="quick-prompt-btn" data-query="explain the most critical findings">
+                    <span class="qp-icon">🔬</span> Critical Findings
+                </button>
+                <button class="quick-prompt-btn" data-query="are there any patterns in my results">
+                    <span class="qp-icon">🔗</span> Patterns
+                </button>
+            </div>
+        </div>
+    </div>
 
-            try {
-                const response = await fetch('/api/upload/', { method: 'POST', body: formData });
-                if (!response.ok) throw new Error(`Server error: ${response.statusText}`);
-                
-                statusMessage.textContent = 'PDF processed successfully! You can now ask questions.';
-                statusMessage.className = 'status-success';
-                uploadForm.style.display = 'none';
-                queryForm.style.display = 'flex';
-                messageContainer.innerHTML = ''; // Clear previous chat
-            } catch (error) {
-                statusMessage.textContent = `Upload failed: ${error.message}`;
-                statusMessage.className = 'status-error';
-            }
+    <!-- RESIZE HANDLE: Between Chat & Dashboard -->
+    <div class="resize-handle" data-resize="dashboard" title="Drag to resize dashboard"></div>
+
+    <!-- ==================== RIGHT: DASHBOARD ==================== -->
+    <div class="dashboard-section">
+        <div class="dashboard-header">
+            <h2>📊 Live Health Dashboard</h2>
+        </div>
+        
+        <div class="dashboard-content">
+            
+            <!-- Box 1: Medical Score -->
+            <div class="dash-card" id="score-card">
+                <div class="dash-card-header">
+                    <h4>🎯 Overall Health Score</h4>
+                    <span class="dash-card-badge badge-score" id="score-badge">--</span>
+                </div>
+                <div class="dash-card-body">
+                    <div class="health-score-display" id="health-score-display">
+                        <div class="empty-state">
+                            <div class="empty-state-icon">⏳</div>
+                            <p class="empty-state-text">Upload a PDF to calculate<br>your health score</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Box 2: Abnormal Values -->
+            <div class="dash-card" id="abnormal-card">
+                <div class="dash-card-header">
+                    <h4>⚠️ Abnormal / Out of Range</h4>
+                    <span class="dash-card-badge badge-abnormal" id="abnormal-count">0 items</span>
+                </div>
+                <div class="dash-card-body" id="abnormal-list-container">
+                    <ul class="value-list" id="abnormal-list">
+                        <li class="empty-state">
+                            <div class="empty-state-icon">✅</div>
+                            <p class="empty-state-text">No abnormal values<br>(or not loaded yet)</p>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Box 3: Normal Values -->
+            <div class="dash-card" id="normal-card">
+                <div class="dash-card-header">
+                    <h4>✅ Normal / Within Range</h4>
+                    <span class="dash-card-badge badge-normal" id="normal-count">0 items</span>
+                </div>
+                <div class="dash-card-body" id="normal-list-container">
+                    <ul class="value-list" id="normal-list">
+                        <li class="empty-state">
+                            <div class="empty-state-icon">📊</div>
+                            <p class="empty-state-text">No data loaded yet</p>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+</div>
+
+<script>
+    // ==========================================
+    // RESIZABLE PANELS FUNCTIONALITY
+    // ==========================================
+    (function() {
+        const layout = document.getElementById('main-layout');
+        const handles = document.querySelectorAll('.resize-handle');
+        
+        let currentHandle = null;
+        let startX = 0;
+        let startWidthLeft = 0;
+        let startWidthRight = 0;
+
+        handles.forEach(handle => {
+            handle.addEventListener('mousedown', initResize);
+            handle.addEventListener('touchstart', initResize, { passive: false });
         });
 
-        queryForm.addEventListener('submit', async (e) => {
+        function initResize(e) {
             e.preventDefault();
-            const question = document.getElementById('query-input').value;
-            if (!question) return;
-
-            displayMessage(question, 'user');
-            document.getElementById('query-input').value = '';
-
-            try {
-                const response = await fetch('/api/query/', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ question })
-                });
-                if (!response.ok) throw new Error('Query failed');
-                const data = await response.json();
-                displayBotResponse(data);
-            } catch (error) {
-                displayMessage('Sorry, I encountered an error.', 'bot');
+            
+            currentHandle = e.target;
+            
+            if (e.type === 'touchstart') {
+                startX = e.touches[0].clientX;
+            } else {
+                startX = e.clientX;
             }
-        });
 
-        function displayMessage(text, sender) {
-            const messageDiv = document.createElement('div');
-            messageDiv.className = `message ${sender}`;
-            messageDiv.innerHTML = `<div class="content"><p>${text}</p></div>`;
-            messageContainer.appendChild(messageDiv);
-            messageContainer.scrollTop = messageContainer.scrollHeight;
+            const resizeType = currentHandle.dataset.resize;
+            
+            if (resizeType === 'pdf') {
+                const pdfSection = document.querySelector('.pdf-section');
+                startWidthLeft = pdfSection.offsetWidth;
+            } else if (resizeType === 'dashboard') {
+                const dashSection = document.querySelector('.dashboard-section');
+                startWidthRight = dashSection.offsetWidth;
+            }
+
+            document.addEventListener('mousemove', doResize);
+            document.addEventListener('mouseup', stopResize);
+            document.addEventListener('touchmove', doResize, { passive: false });
+            document.addEventListener('touchend', stopResize);
+
+            currentHandle.style.background = 'linear-gradient(180deg, #667eea, #764ba2)';
+            document.body.style.cursor = 'col-resize';
+            document.body.style.userSelect = 'none';
+            document.body.style.selectNone = 'none';
         }
 
-        function displayBotResponse(response) {
-            const messageDiv = document.createElement('div');
-            messageDiv.className = 'message bot';
-            let contentHtml = '';
+        function doResize(e) {
+            if (!currentHandle) return;
+            e.preventDefault();
 
-            if (response.type === 'table') {
-                contentHtml = '<div class="response-card">' + createTableHtml(response.data) + '</div>';
-            } else if (response.type === 'text') {
-                const answer = response.answer;
-                const healthScoreMatch = answer.match(/Health Score: (\d+\.?\d*)\/100 \((.*?)\)/);
+            let clientX;
+            if (e.type === 'touchmove') {
+                clientX = e.touches[0].clientX;
+            } else {
+                clientX = e.clientX;
+            }
 
-                if (healthScoreMatch) {
-                    contentHtml = createHealthScoreCard(answer, healthScoreMatch);
-                } else {
-                    let formattedAnswer = answer.replace(/</g, "&lt;").replace(/>/g, "&gt;")
-                        .replace(/\n/g, '<br>')
-                        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-                        .replace(/─{10,}/g, '<hr style="border: 0; border-top: 1px solid #eee; margin: 1em 0;">');
-                    contentHtml = `<div class="response-card">${formattedAnswer}</div>`;
+            const resizeType = currentHandle.dataset.resize;
+
+            if (resizeType === 'pdf') {
+                const diff = clientX - startX;
+                let newWidth = startWidthLeft + diff;
+                
+                newWidth = Math.max(250, Math.min(600, newWidth));
+                
+                const pdfSection = document.querySelector('.pdf-section');
+                pdfSection.style.width = newWidth + 'px';
+                pdfSection.style.flex = 'none';
+                
+            } else if (resizeType === 'dashboard') {
+                const diff = startX - clientX;
+                let newWidth = startWidthRight + diff;
+                
+                newWidth = Math.max(250, Math.min(500, newWidth));
+                
+                const dashSection = document.querySelector('.dashboard-section');
+                dashSection.style.width = newWidth + 'px';
+                dashSection.style.flex = 'none';
+            }
+        }
+
+        function stopResize() {
+            if (!currentHandle) return;
+
+            currentHandle.style.background = '';
+            currentHandle = null;
+
+            document.removeEventListener('mousemove', doResize);
+            document.removeEventListener('mouseup', stopResize);
+            document.removeEventListener('touchmove', doResize);
+            document.removeEventListener('touchend', stopResize);
+
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+            document.body.style.selectNone = '';
+        }
+    })();
+
+    // ==========================================
+    // QUICK PROMPT BUTTONS HANDLER
+    // ==========================================
+    document.addEventListener('DOMContentLoaded', () => {
+        const quickPromptsContainer = document.getElementById('quick-prompts');
+        
+        // Show/hide quick prompts based on upload state
+        const observer = new MutationObserver(() => {
+            if (!queryInput.disabled && quickPromptsContainer) {
+                quickPromptsContainer.style.display = 'flex';
+            }
+        });
+        
+        if (queryInput) {
+            observer.observe(queryInput, { attributes: true, attributeFilter: ['disabled'] });
+        }
+
+        // Click handlers for quick prompts
+        if (quickPromptsContainer) {
+            quickPromptsContainer.querySelectorAll('.quick-prompt-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const query = btn.dataset.query;
+                    if (!query || queryInput.disabled) return;
+                    
+                    // Set value and submit
+                    queryInput.value = query;
+                    queryForm.dispatchEvent(new Event('submit'));
+                    
+                    // Visual feedback
+                    btn.style.transform = 'scale(0.95)';
+                    setTimeout(() => {
+                        btn.style.transform = '';
+                    }, 150);
+                });
+            });
+        }
+    });
+
+    // ==========================================
+    // DOM ELEMENTS
+    // ==========================================
+    const fileInput = document.getElementById('file-input-hidden');
+    const pdfViewer = document.getElementById('pdf-viewer');
+    const pdfPlaceholder = document.getElementById('pdf-placeholder');
+    const queryForm = document.getElementById('query-form');
+    const queryInput = document.getElementById('query-input');
+    const sendBtn = document.getElementById('send-btn');
+    const messageContainer = document.getElementById('message-container');
+    
+    // Dashboard elements
+    const scoreDisplay = document.getElementById('health-score-display');
+    const scoreBadge = document.getElementById('score-badge');
+    const abnormalListEl = document.getElementById('abnormal-list');
+    const normalListEl = document.getElementById('normal-list');
+    const abnormalCountEl = document.getElementById('abnormal-count');
+    const normalCountEl = document.getElementById('normal-count');
+
+    // State
+    let currentPdfUrl = null;
+    let cachedTableData = null;
+
+    // ==========================================
+    // FILE UPLOAD HANDLER
+    // ==========================================
+    fileInput.addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        addMessage('bot', '📤 <strong>Processing your PDF...</strong><br>Please wait while I extract and analyze the data...', 'info');
+
+        const formData = new FormData();
+        formData.append('file', file);
+
+        try {
+            const response = await fetch('/api/upload/', { 
+                method: 'POST', 
+                body: formData 
+            });
+            
+            if (!response.ok) {
+                throw new Error(`Server error: ${response.status}`);
+            }
+            
+            const result = await response.json();
+            
+            console.log('Upload Response:', result);
+
+            // Enable chat interface
+            queryInput.disabled = false;
+            sendBtn.disabled = false;
+            queryInput.placeholder = "Ask about your report (e.g., 'show abnormal values')...";
+            queryInput.focus();
+
+            // Show PDF in viewer
+            if (file.type === 'application/pdf') {
+                if (currentPdfUrl) URL.revokeObjectURL(currentPdfUrl);
+                currentPdfUrl = URL.createObjectURL(file);
+                pdfViewer.innerHTML = `<iframe src="${currentPdfUrl}"></iframe>`;
+            }
+
+            // Process upload response
+            handleUploadResponse(result);
+
+        } catch (error) {
+            console.error('Upload Error:', error);
+            addMessage('bot', `❌ <strong>Upload Failed:</strong> ${error.message}`, 'error');
+        }
+    });
+
+    // ==========================================
+    // QUERY / CHAT HANDLER
+    // ==========================================
+    queryForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const question = queryInput.value.trim();
+        if (!question) return;
+
+        addMessage('user', question);
+        queryInput.value = '';
+
+        const typingId = showTypingIndicator();
+
+        try {
+            const response = await fetch('/api/query/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ question })
+            });
+            
+            if (!response.ok) throw new Error(`Query failed: ${response.status}`);
+            
+            const data = await response.json();
+            
+            console.log('Query Response:', data);
+            
+            removeTypingIndicator(typingId);
+
+            handleQueryResponse(data, question);
+
+        } catch (error) {
+            console.error('Query Error:', error);
+            removeTypingIndicator(typingId);
+            addMessage('bot', `❌ <strong>Error:</strong> ${error.message}<br>Please try again.`, 'error');
+        }
+    });
+
+    // ==========================================
+    // RESPONSE HANDLERS
+    // ==========================================
+    function handleUploadResponse(result) {
+        let msg = '';
+        
+        if (result.message) {
+            msg += `✅ ${result.message}<br><br>`;
+        }
+
+        if (result.document_type) {
+            msg += `📋 <strong>Type:</strong> ${result.document_type.replace('_', ' ').toUpperCase()}<br>`;
+        }
+
+        if (result.test_count !== undefined) {
+            msg += `🔬 <strong>Tests Found:</strong> ${result.test_count}<br>`;
+        }
+
+        if (result.abnormal_count !== undefined && result.abnormal_count > 0) {
+            msg += `⚠️ <strong>Abnormal:</strong> ${result.abnormal_count}<br>`;
+        } else if (result.abnormal_count === 0) {
+            msg += `✅ <strong>Status:</strong> All values normal!<br>`;
+        }
+
+        if (result.extraction_success === true || result.test_count > 0) {
+            msg += `<br>💡 <em>You can now ask questions! Try:</em><br>` +
+                   `&nbsp;&nbsp;• "Show abnormal values"<br>` +
+                   `&nbsp;&nbsp;• "Explain [test name]"<br>` +
+                   `&nbsp;&nbsp;• "Give me summary"<br>` +
+                   `&nbsp;&nbsp;• "What's my health score?"`;
+        }
+
+        addMessage('bot', msg, 'success');
+
+        setTimeout(() => fetchDashboardData(), 500);
+    }
+
+    function handleQueryResponse(data, originalQuestion) {
+
+        if (data.type === 'table' && Array.isArray(data.data)) {
+            handleTableResponse(data.data, data);
+        } else if (data.type === 'text') {
+            handleTextResponse(data.answer || '', data);
+        } else if (data.type === 'signal' || data.type === 'chart_analysis') {
+            handleSignalResponse(data);
+        } else {
+            handleTextResponse(JSON.stringify(data), data);
+        }
+    }
+
+    function handleTableResponse(tableData, fullResponse) {
+        cachedTableData = tableData;
+        
+        updateDashboardFromTableData(tableData);
+
+        const tableHtml = createEnhancedTableHtml(tableData);
+        
+        const abnormal = tableData.filter(r => r.status === 'HIGH' || r.status === 'LOW');
+        const normal = tableData.filter(r => r.status === 'NORMAL');
+        
+        let summaryHtml = '';
+        if (abnormal.length > 0) {
+            summaryHtml = `<div style="margin-bottom:12px;padding:10px;background:#fff3e0;border-radius:8px;border-left:4px solid #ff9800;">
+                📊 <strong>${tableData.length}</strong> total tests | 
+                ⚠️ <strong>${abnormal.length}</strong> abnormal | 
+                ✅ <strong>${normal.length}</strong> normal
+            </div>`;
+        }
+
+        addMessage('bot', `${summaryHtml}${tableHtml}`);
+    }
+
+    function handleTextResponse(answerText, fullResponse) {
+        const healthScoreRegex = /Health Score:\s*(\d+\.?\d*)\/?\s*100\s*[—\-–]\s*(.*?)(?:\n|$)/i;
+        const match = answerText.match(healthScoreRegex);
+
+        if (match) {
+            const score = parseFloat(match[1]);
+            const status = match[2].trim();
+            
+            updateHealthScore(score, status);
+
+            const scoreCardHtml = createScoreCardHtml(score, status);
+            
+            const remainingText = answerText.split('\n\n').slice(1).join('\n\n');
+            
+            let content = scoreCardHtml;
+            if (remainingText && remainingText.trim().length > 10) {
+                content += `<div class="response-card markdown-content">${formatMarkdown(remainingText)}</div>`;
+            }
+            
+            addMessage('bot', content);
+        } else {
+            const formattedHtml = `<div class="response-card markdown-content">${formatMarkdown(answerText)}</div>`;
+            addMessage('bot', formattedHtml);
+        }
+
+        if (fullResponse && fullResponse.abnormal_details) {
+            updateDashboardFromAbnormalDetails(fullResponse.abnormal_details);
+        }
+    }
+
+    function handleSignalResponse(data) {
+        const signalHtml = `
+            <div class="response-card">
+                <h4 style="margin:0 0 12px;color:#667eea;display:flex;align-items:center;gap:8px;">
+                    🫀 ECG / Signal Analysis
+                </h4>
+                <div class="markdown-content">${formatMarkdown(data.answer || 'Analysis completed.')}</div>
+            </div>
+        `;
+        addMessage('bot', signalHtml);
+    }
+
+    // ==========================================
+    // DASHBOARD UPDATE FUNCTIONS
+    // ==========================================
+    async function fetchDashboardData() {
+        try {
+            showLoadingInDashboard();
+            
+            const response = await fetch('/api/query/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ question: 'show all tests' })
+            });
+            
+            const data = await response.json();
+            
+            if (data.type === 'table' && Array.isArray(data.data)) {
+                cachedTableData = data.data;
+                updateDashboardFromTableData(data.data);
+            }
+        } catch (e) {
+            console.log('Dashboard fetch skipped or failed:', e.message);
+        }
+    }
+
+    function updateDashboardFromTableData(data) {
+        if (!Array.isArray(data) || data.length === 0) return;
+
+        const abnormal = data.filter(r => r.status === 'HIGH' || r.status === 'LOW')
+                           .sort((a, b) => {
+                               const sevOrder = { severe: 3, moderate: 2, mild: 1, unknown: 0, normal: 0 };
+                               return (sevOrder[b.severity] || 0) - (sevOrder[a.severity] || 0);
+                           });
+        
+        const normal = data.filter(r => r.status === 'NORMAL');
+
+        renderValueList(abnormalListEl, abnormal, 'abnormal', abnormalCountEl);
+        renderValueList(normalListEl, normal, 'normal', normalCountEl);
+    }
+
+    function updateDashboardFromAbnormalDetails(abnormalDetails) {
+        if (!Array.isArray(abnormalDetails)) return;
+        
+        if (cachedTableData) {
+            updateDashboardFromTableData(cachedTableData);
+        } else {
+            renderValueList(abnormalListEl, abnormalDetails, 'abnormal', abnormalCountEl);
+        }
+    }
+
+    function updateHealthScore(score, status) {
+        if (isNaN(score) || score < 0 || score > 100) {
+            score = 0;
+        }
+
+        let color = '#666';
+        let bgColor = '#f5f5f5';
+        
+        if (typeof status === 'string') {
+            const s = status.toLowerCase();
+            if (s.includes('excellent') || s.includes('good')) {
+                color = '#388e3c';
+                bgColor = '#e8f5e9';
+            } else if (s.includes('mild') || s.includes('moderate')) {
+                color = '#f57c00';
+                bgColor = '#fff3e0';
+            } else if (s.includes('high risk') || s.includes('severe')) {
+                color = '#d32f2f';
+                bgColor = '#ffebee';
+            }
+        } else {
+            if (score >= 80) { color = '#388e3c'; bgColor = '#e8f5e9'; }
+            else if (score >= 60) { color = '#f57c00'; bgColor = '#fff3e0'; }
+            else if (score > 0) { color = '#d32f2f'; bgColor = '#ffebee'; }
+        }
+
+        scoreBadge.textContent = `${Math.round(score)}/100`;
+        scoreBadge.style.background = bgColor;
+        scoreBadge.style.color = color;
+
+        const radius = 54;
+        const circumference = 2 * Math.PI * radius;
+        const offset = circumference - (score / 100) * circumference;
+
+        scoreDisplay.innerHTML = `
+            <div class="score-circle-container">
+                <svg class="score-svg" viewBox="0 0 120 120">
+                    <circle class="score-bg" cx="60" cy="60" r="${radius}" />
+                    <circle class="score-progress" cx="60" cy="60" r="${radius}"
+                        stroke="${color}"
+                        stroke-dasharray="${circumference}"
+                        stroke-dashoffset="${offset}"
+                        style="transition: stroke-dashoffset 1.5s ease-in-out;" />
+                </svg>
+                <div class="score-center-text">
+                    <div class="score-value-big">${Math.round(score)}</div>
+                    <div class="score-max-label">/ 100</div>
+                </div>
+            </div>
+            <div class="score-status-text-dash" style="background:${bgColor};color:${color};">
+                ${status || 'Calculating...'}
+            </div>
+            <div class="score-subtext">Based on analyzed parameters</div>
+        `;
+    }
+
+    function renderValueList(container, items, type, countElement) {
+        if (!items || items.length === 0) {
+            const icon = type === 'abnormal' ? '✅' : '📊';
+            const msg = type === 'abnormal' ? 'All values are normal!' : 'No values available';
+            container.innerHTML = `
+                <li class="empty-state">
+                    <div class="empty-state-icon">${icon}</div>
+                    <p class="empty-state-text">${msg}</p>
+                </li>
+            `;
+            countElement.textContent = '0 items';
+            return;
+        }
+
+        countElement.textContent = `${items.length} item${items.length !== 1 ? 's' : ''}`;
+
+        let html = '';
+        const visibleItems = items.slice(0, 5);
+        const hiddenItems = items.slice(5);
+
+        visibleItems.forEach(item => {
+            html += createValueItemHtml(item, type, false);
+        });
+
+        if (hiddenItems.length > 0) {
+            html += `<div class="more-indicator">↓ ${hiddenItems.length} more — scroll down ↓</div>`;
+            hiddenItems.forEach(item => {
+                html += createValueItemHtml(item, type, true);
+            });
+        }
+
+        container.innerHTML = html;
+    }
+
+    function createValueItemHtml(item, type, isHidden) {
+        const statusClass = item.status === 'HIGH' ? 'status-high' : 
+                             item.status === 'LOW' ? 'status-low' : 'status-normal';
+        const arrow = item.status === 'HIGH' ? '↑' : 
+                     item.status === 'LOW' ? '↓' : '•';
+        const opacity = isHidden ? 'style="opacity:0.7;"' : '';
+        
+        const testName = escapeHtml(item.test || 'Unknown Test');
+        const value = escapeHtml(item.value || '--');
+        const unit = escapeHtml(item.unit || '');
+        const range = item.range ? escapeHtml(item.range) : '';
+
+        return `
+            <li class="value-item" ${opacity}>
+                <div class="value-left">
+                    <div class="value-test-name">${arrow} ${testName}</div>
+                    ${range ? `<div class="value-range">Ref: ${range}</div>` : ''}
+                </div>
+                <div class="value-right">
+                    <span class="value-number ${statusClass}">${value}</span>
+                    ${unit ? `<span class="value-unit">${unit}</span>` : ''}
+                </div>
+            </li>
+        `;
+    }
+
+    function showLoadingInDashboard() {
+        const loadingHtml = '<li class="empty-state"><div class="empty-state-icon">⏳</div><p class="empty-state-text">Loading data...</p></li>';
+        abnormalListEl.innerHTML = loadingHtml;
+        normalListEl.innerHTML = loadingHtml;
+    }
+
+    // ==========================================
+    // UI HELPER FUNCTIONS
+    // ==========================================
+    function addMessage(sender, contentHtml, type = '') {
+        const div = document.createElement('div');
+        div.className = `message ${sender}`;
+        
+        let extraClass = '';
+        if (type === 'success') extraClass = 'color:#2e7d32;';
+        else if (type === 'error') extraClass = 'color:#c62828;';
+        else if (type === 'info') extraClass = 'color:#1565c0;';
+        
+        div.innerHTML = `<div class="content" style="${extraClass}">${contentHtml}</div>`;
+        messageContainer.appendChild(div);
+        scrollToBottom();
+    }
+
+    function showTypingIndicator() {
+        const id = 'typing-' + Date.now();
+        const div = document.createElement('div');
+        div.id = id;
+        div.className = 'message bot';
+        div.innerHTML = `
+            <div class="content" style="padding:16px 24px;">
+                <div style="display:flex;gap:6px;">
+                    <span class="typing-dot" style="width:10px;height:10px;background:#999;border-radius:50%;animation:bounce 1.4s infinite ease-in-out both;"></span>
+                    <span class="typing-dot" style="width:10px;height:10px;background:#999;border-radius:50%;animation:bounce 1.4s infinite ease-in-out both 0.16s;"></span>
+                    <span class="typing-dot" style="width:10px;height:10px;background:#999;border-radius:50%;animation:bounce 1.4s infinite ease-in-out both 0.32s;"></span>
+                </div>
+                <style>@keyframes bounce{0%,80%,100%{transform:scale(0.6)}40%{transform:scale(1)}}</style>
+            </div>
+        `;
+        messageContainer.appendChild(div);
+        scrollToBottom();
+        return id;
+    }
+
+    function removeTypingIndicator(id) {
+        const el = document.getElementById(id);
+        if (el) el.remove();
+    }
+
+    function scrollToBottom() {
+        requestAnimationFrame(() => {
+            messageContainer.scrollTo({
+                top: messageContainer.scrollHeight,
+                behavior: 'smooth'
+            });
+        });
+    }
+
+    function escapeHtml(text) {
+        if (!text) return '';
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    function formatMarkdown(text) {
+        if (!text) return '';
+        
+        return escapeHtml(text)
+            .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+            .replace(/\*(.+?)\*/g, '<em>$1</em>')
+            .replace(/─{3,}|—{2,}|__{2,}/g, '<hr>')
+            .replace(/\n/g, '<br>')
+            .replace(/^•\s+(.+)$/gm, '<li>$1</li>')
+            .replace(/(<br\s*\/?>){3,}/g, '<br><br>');
+    }
+
+    function createEnhancedTableHtml(data) {
+        if (!data || data.length === 0) {
+            return '<div class="response-card"><p>No data available.</p></div>';
+        }
+
+        const abnormal = data.filter(r => r.status === 'HIGH' || r.status === 'LOW');
+        const normal = data.filter(r => r.status === 'NORMAL');
+        const unknown = data.filter(r => r.status === 'UNKNOWN');
+
+        let html = '<div class="response-card">';
+        
+        html += `<div style="display:flex;gap:15px;margin-bottom:15px;font-size:13px;">
+            <span style="color:#d32f2f;font-weight:600;">⚠️ ${abnormal.length} Abnormal</span>
+            <span style="color:#388e3c;font-weight:600;">✅ ${normal.length} Normal</span>
+            ${unknown.length > 0 ? `<span style="color:#757575;font-weight:600;">❓ ${unknown.length} Unknown</span>` : ''}
+        </div>`;
+
+        html += '<table class="results-table">';
+        html += '<thead><tr><th>Test Name</th><th>Value</th><th>Unit</th><th>Range</th><th>Status</th></tr></thead><tbody>';
+        
+        data.forEach(row => {
+            let statusClass = 'status-unknown';
+            if (row.status === 'HIGH') statusClass = 'status-high';
+            else if (row.status === 'LOW') statusClass = 'status-low';
+            else if (row.status === 'NORMAL') statusClass = 'status-normal';
+
+            html += `<tr>
+                <td><strong>${escapeHtml(row.test || '')}</strong></td>
+                <td style="font-weight:600;font-variant-numeric:tabular-nums;">${escapeHtml(row.value || '')}</td>
+                <td>${escapeHtml(row.unit || '')}</td>
+                <td style="color:#666;font-size:12px;">${escapeHtml(row.range || 'N/A')}</td>
+                <td><span class="${statusClass}">${row.status || 'N/A'}</span></td>
+            </tr>`;
+        });
+
+        html += '</tbody></table></div>';
+        return html;
+    }
+
+    function createScoreCardHtml(score, status) {
+        let color = '#666';
+        let bgColor = '#f5f5f5';
+        
+        if (typeof status === 'string') {
+            const s = status.toLowerCase();
+            if (s.includes('excellent') || s.includes('good')) { color = '#388e3c'; bgColor = '#e8f5e9'; }
+            else if (s.includes('mild') || s.includes('moderate')) { color = '#f57c00'; bgColor = '#fff3e0'; }
+            else if (s.includes('high risk') || s.includes('severe')) { color = '#d32f2f'; bgColor = '#ffebee'; }
+        }
+
+        return `
+            <div class="health-score-inline">
+                <div class="score-big">${Math.round(score)}</div>
+                <div class="score-status-text" style="color:${color};">${status}</div>
+                <div class="progress-bar-container">
+                    <div class="health-score-inner-bar" style="width:${score}%;background:linear-gradient(90deg,${color},${color}dd);"></div>
+                </div>
+            </div>
+        `;
+    }
+
+    // ==========================================
+    // KEYBOARD SHORTCUT
+    // ==========================================
+    queryInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            queryForm.dispatchEvent(new Event('submit'));
+        }
+    });
+
+    messageContainer.addEventListener('click', () => {
+        if (!queryInput.disabled) queryInput.focus();
+    });
+
+</script>
+
+</body>
+</html> {% endcomment %}
+
+{% comment %} <!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Medical Report AI Assistant</title>
+    <style>
+        :root {
+            --primary-purple: #8b5cf6;
+            --primary-purple-dark: #7c3aed;
+            --bg-dark: #0f172a;
+            --bg-dark-elevated: #1e293b;
+            --bg-dark-surface: #334155;
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --border-dark: rgba(255, 255, 255, 0.08);
+            --border-light: rgba(255, 255, 255, 0.12);
+            --accent-green: #10b981;
+            --accent-red: #ef4444;
+            --accent-amber: #f59e0b;
+            --accent-blue: #3b82f6;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Inter', sans-serif;
+            background-color: var(--bg-dark);
+            color: var(--text-primary);
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* ==================== MAIN LAYOUT ==================== */
+        .resizable-container {
+            display: flex;
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+            background: var(--bg-dark);
+        }
+
+        .resize-handle {
+            width: 4px;
+            background: transparent;
+            cursor: col-resize;
+            flex-shrink: 0;
+            transition: all 0.2s;
+            position: relative;
+            z-index: 100;
+        }
+
+        .resize-handle:hover {
+            background: linear-gradient(180deg, var(--primary-purple), var(--primary-purple-dark));
+            box-shadow: 0 0 12px rgba(139, 92, 246, 0.4);
+        }
+
+        /* FIX 1: Increased PDF section min/max width for better readability */
+        .pdf-section {
+            min-width: 420px;
+            max-width: 680px;
+            width: 480px;
+            background: var(--bg-dark);
+            display: flex;
+            flex-direction: column;
+            border-right: 1px solid var(--border-dark);
+            flex-shrink: 0;
+        }
+
+        .dashboard-section {
+            min-width: 300px;
+            max-width: 450px;
+            background: var(--bg-dark);
+            border-left: 1px solid var(--border-dark);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .chat-section {
+            flex: 1;
+            min-width: 400px;
+            display: flex;
+            flex-direction: column;
+            background: var(--bg-dark);
+        }
+
+        /* ==================== PDF VIEWER TOOLBAR ==================== */
+        .pdf-toolbar-top {
+            padding: 12px 16px;
+            background: var(--bg-dark-elevated);
+            border-bottom: 1px solid var(--border-dark);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+        }
+
+        .toolbar-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .toolbar-btn {
+            width: 32px;
+            height: 32px;
+            border: none;
+            background: transparent;
+            color: var(--text-secondary);
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .toolbar-btn:hover {
+            background: rgba(139, 92, 246, 0.15);
+            color: var(--primary-purple);
+        }
+
+        .zoom-display {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-primary);
+            min-width: 45px;
+            text-align: center;
+        }
+
+        /* ==================== PDF UPLOAD AREA ==================== */
+        .pdf-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background: var(--bg-dark);
+            position: relative;
+        }
+
+        .upload-area {
+            width: 100%;
+            max-width: 400px;
+            aspect-ratio: 4/3;
+            border: 2px dashed var(--border-light);
+            border-radius: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 16px;
+            cursor: pointer;
+            transition: all 0.3s;
+            background: rgba(30, 41, 59, 0.5);
+            margin-bottom: 24px;
+        }
+
+        .upload-area:hover {
+            border-color: var(--primary-purple);
+            background: rgba(139, 92, 246, 0.08);
+            transform: translateY(-2px);
+        }
+
+        .upload-icon-circle {
+            width: 72px;
+            height: 72px;
+            background: linear-gradient(135deg, rgba(124, 58, 237, 0.2), rgba(167, 139, 250, 0.15));
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 32px;
+            box-shadow: 0 8px 24px rgba(124, 58, 237, 0.25);
+        }
+
+        .upload-title {
+            font-size: 17px;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        .upload-subtitle {
+            font-size: 13px;
+            color: var(--text-muted);
+            text-align: center;
+            line-height: 1.5;
+        }
+
+        .file-type-buttons {
+            display: flex;
+            gap: 8px;
+            margin-top: 8px;
+        }
+
+        .file-type-btn {
+            padding: 6px 14px;
+            background: var(--bg-dark-surface);
+            border: 1px solid var(--border-dark);
+            border-radius: 6px;
+            color: var(--text-secondary);
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .file-type-btn:hover {
+            background: var(--bg-dark-elevated);
+            border-color: var(--border-light);
+            color: var(--text-primary);
+        }
+
+        /* FIX 1: PDF iframe — proper sizing without transform scaling blur */
+        .pdf-iframe-wrapper {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: #525659;
+            border-radius: 8px;
+            overflow: hidden;
+            display: none;
+        }
+
+        .pdf-iframe-wrapper.active {
+            display: block;
+        }
+
+        .pdf-iframe-wrapper iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+
+        /* ==================== FIX 2: NEW CLEAN CHAT HEADER ==================== */
+        .chat-header {
+            padding: 16px 24px;
+            background: var(--bg-dark-elevated);
+            border-bottom: 1px solid var(--border-dark);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .header-icon {
+            width: 36px;
+            height: 36px;
+            background: rgba(139, 92, 246, 0.15);
+            border: 1px solid rgba(139, 92, 246, 0.3);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+        }
+
+        .header-text h1 {
+            font-size: 15px;
+            font-weight: 700;
+            color: var(--text-primary);
+            line-height: 1.2;
+        }
+
+        .header-text p {
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-top: 2px;
+        }
+
+        .header-badge {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid rgba(16, 185, 129, 0.2);
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--accent-green);
+        }
+
+        .header-badge-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--accent-green);
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+
+        /* ==================== MESSAGE CONTAINER ==================== */
+        .message-container {
+            flex: 1;
+            padding: 24px 28px;
+            overflow-y: auto;
+            background: var(--bg-dark);
+            scroll-behavior: smooth;
+        }
+
+        .message {
+            margin-bottom: 24px;
+            display: flex;
+            animation: fadeInUp 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(16px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .message.bot { justify-content: flex-start; }
+        .message.user { justify-content: flex-end; }
+
+        .content {
+            max-width: 85%;
+            padding: 18px 22px;
+            border-radius: 18px;
+            line-height: 1.7;
+            font-size: 14px;
+            word-wrap: break-word;
+        }
+
+        .message.bot .content {
+            background: var(--bg-dark-elevated);
+            color: var(--text-primary);
+            border: 1px solid var(--border-dark);
+            border-bottom-left-radius: 6px;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+        }
+
+        .message.user .content {
+            background: linear-gradient(135deg, var(--primary-purple), var(--primary-purple-dark));
+            color: white;
+            border-bottom-right-radius: 6px;
+            box-shadow: 0 4px 16px rgba(124, 58, 237, 0.35);
+        }
+
+        .message-meta {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            margin-top: 12px;
+            padding: 0 4px;
+        }
+
+        .timestamp {
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        .meta-actions {
+            display: flex;
+            gap: 12px;
+        }
+
+        .meta-action-btn {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            cursor: pointer;
+            font-size: 14px;
+            opacity: 0.7;
+            transition: all 0.2s;
+        }
+
+        .meta-action-btn:hover {
+            color: var(--text-secondary);
+            opacity: 1;
+        }
+
+        /* Response Content Styling */
+        .response-card {
+            background: rgba(30, 41, 59, 0.5);
+            border: 1px solid var(--border-dark);
+            border-radius: 14px;
+            padding: 18px;
+            margin-top: 14px;
+        }
+
+        .results-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+            margin-top: 10px;
+        }
+
+        .results-table th,
+        .results-table td {
+            padding: 11px 14px;
+            text-align: left;
+            border-bottom: 1px solid var(--border-dark);
+        }
+
+        .results-table th {
+            background: rgba(51, 65, 85, 0.5);
+            font-weight: 700;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-secondary);
+        }
+
+        .results-table tbody tr:hover {
+            background: rgba(139, 92, 246, 0.08);
+        }
+
+        .status-high { 
+            color: #fca5a5; 
+            font-weight: 700;
+            background: rgba(239, 68, 68, 0.15);
+            padding: 3px 10px;
+            border-radius: 5px;
+            font-size: 11px;
+        }
+        .status-low { 
+            color: #93c5fd; 
+            font-weight: 700;
+            background: rgba(59, 130, 246, 0.15);
+            padding: 3px 10px;
+            border-radius: 5px;
+            font-size: 11px;
+        }
+        .status-normal { 
+            color: #86efac; 
+            font-weight: 700;
+            background: rgba(16, 185, 129, 0.15);
+            padding: 3px 10px;
+            border-radius: 5px;
+            font-size: 11px;
+        }
+        .status-unknown { 
+            color: var(--text-muted); 
+            background: rgba(100, 116, 139, 0.15);
+            padding: 3px 10px;
+            border-radius: 5px;
+            font-size: 11px;
+        }
+
+        /* Health Score Inline */
+        .health-score-inline {
+            text-align: center;
+            padding: 20px;
+            background: rgba(30, 41, 59, 0.6);
+            border-radius: 12px;
+            margin-top: 12px;
+        }
+
+        .health-score-inline .score-big {
+            font-size: 48px;
+            font-weight: 800;
+            background: linear-gradient(135deg, var(--accent-green), #34d399);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .health-score-inline .score-status-text {
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--accent-amber);
+            margin: 8px 0;
+        }
+
+        .health-score-inline .progress-bar-container {
+            width: 70%;
+            height: 8px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+            margin: 14px auto 0;
+            overflow: hidden;
+        }
+
+        .health-score-inner-bar {
+            height: 100%;
+            border-radius: 4px;
+            transition: width 1s ease-out;
+        }
+
+        /* ==================== INPUT AREA ==================== */
+        .input-container {
+            padding: 20px 28px 24px;
+            background: var(--bg-dark);
+            border-top: 1px solid var(--border-dark);
+        }
+
+        .quick-prompts-container {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-bottom: 16px;
+        }
+
+        .quick-prompt-btn {
+            padding: 8px 16px;
+            border: 1px solid var(--border-light);
+            border-radius: 20px;
+            background: transparent;
+            color: var(--text-secondary);
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.25s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .quick-prompt-btn:hover {
+            border-color: var(--primary-purple);
+            color: var(--primary-purple);
+            background: rgba(139, 92, 246, 0.1);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(139, 92, 246, 0.2);
+        }
+
+        .query-form {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+
+        #query-input {
+            flex-grow: 1;
+            padding: 14px 20px;
+            border: 1px solid var(--border-light);
+            border-radius: 26px;
+            font-size: 14px;
+            transition: all 0.3s;
+            background: var(--bg-dark-elevated);
+            color: var(--text-primary);
+        }
+
+        #query-input::placeholder {
+            color: var(--text-muted);
+        }
+
+        #query-input:focus {
+            outline: none;
+            border-color: var(--primary-purple);
+            box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.15);
+            background: var(--bg-dark-surface);
+        }
+
+        #query-input:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .send-btn {
+            width: 44px;
+            height: 44px;
+            border: none;
+            border-radius: 50%;
+            background: var(--bg-dark-surface);
+            color: var(--text-muted);
+            cursor: pointer;
+            font-size: 18px;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .send-btn:not(:disabled):hover {
+            background: var(--primary-purple);
+            color: white;
+            transform: scale(1.05);
+            box-shadow: 0 4px 16px rgba(139, 92, 246, 0.4);
+        }
+
+        .send-btn:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+        }
+
+        .disclaimer {
+            font-size: 11px;
+            color: var(--text-muted);
+            text-align: center;
+            margin-top: 12px;
+            line-height: 1.5;
+        }
+
+        /* ==================== DASHBOARD SECTION ==================== */
+        .dashboard-header {
+            padding: 20px 22px;
+            background: var(--bg-dark-elevated);
+            border-bottom: 1px solid var(--border-dark);
+        }
+
+        .dashboard-header-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 8px;
+        }
+
+        .dashboard-header h2 {
+            font-size: 17px;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        .dashboard-date {
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-top: 2px;
+        }
+
+        .review-badge {
+            padding: 5px 12px;
+            background: rgba(245, 158, 11, 0.15);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            border-radius: 6px;
+            color: var(--accent-amber);
+            font-size: 11px;
+            font-weight: 700;
+        }
+
+        .dashboard-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        /* Health Score Card */
+        .score-card-main {
+            background: linear-gradient(135deg, rgba(16, 185, 129, 0.12), rgba(52, 211, 153, 0.06));
+            border: 1px solid rgba(16, 185, 129, 0.2);
+            border-radius: 18px;
+            padding: 24px;
+            text-align: center;
+        }
+
+        .score-card-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            margin-bottom: 16px;
+        }
+
+        .score-value-large {
+            font-size: 56px;
+            font-weight: 900;
+            color: var(--accent-green);
+            line-height: 1;
+        }
+
+        .score-max-small {
+            font-size: 16px;
+            color: var(--text-muted);
+            font-weight: 600;
+        }
+
+        .score-status-label {
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--accent-amber);
+            margin-bottom: 12px;
+        }
+
+        .score-stats {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            font-size: 12px;
+        }
+
+        .stat-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .stat-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }
+
+        .stat-dot.critical { background: var(--accent-red); }
+        .stat-dot.abnormal { background: var(--accent-amber); }
+        .stat-dot.normal { background: var(--accent-green); }
+
+        /* Alert Cards Row */
+        .alerts-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        .alert-mini-card {
+            background: var(--bg-dark-elevated);
+            border: 1px solid var(--border-dark);
+            border-radius: 14px;
+            padding: 16px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            transition: all 0.2s;
+        }
+
+        .alert-mini-card:hover {
+            background: rgba(30, 41, 59, 0.8);
+            transform: translateY(-2px);
+        }
+
+        .alert-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+        }
+
+        .alert-icon.red { background: rgba(239, 68, 68, 0.15); }
+        .alert-icon.green { background: rgba(16, 185, 129, 0.15); }
+
+        .alert-info h4 {
+            font-size: 20px;
+            font-weight: 800;
+            color: var(--text-primary);
+            line-height: 1;
+        }
+
+        .alert-info span {
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        /* Tab Navigation */
+        .tab-nav {
+            display: flex;
+            gap: 8px;
+            background: var(--bg-dark-elevated);
+            padding: 6px;
+            border-radius: 10px;
+            border: 1px solid var(--border-dark);
+        }
+
+        .tab-btn {
+            flex: 1;
+            padding: 10px;
+            border: none;
+            background: transparent;
+            color: var(--text-muted);
+            font-size: 13px;
+            font-weight: 600;
+            border-radius: 7px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .tab-btn.active {
+            background: var(--primary-purple);
+            color: white;
+            box-shadow: 0 2px 8px rgba(139, 92, 246, 0.3);
+        }
+
+        .tab-btn:not(.active):hover {
+            color: var(--text-secondary);
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        /* Attention Required Card */
+        .attention-card {
+            background: rgba(239, 68, 68, 0.08);
+            border: 1px solid rgba(239, 68, 68, 0.2);
+            border-radius: 14px;
+            padding: 16px;
+        }
+
+        .attention-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+
+        .attention-icon {
+            color: var(--accent-red);
+            font-size: 16px;
+        }
+
+        .attention-title {
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--accent-red);
+        }
+
+        .attention-subtitle {
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        /* Test Result Items */
+        .test-results-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .test-result-item {
+            background: var(--bg-dark-elevated);
+            border: 1px solid var(--border-dark);
+            border-radius: 12px;
+            padding: 14px 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: all 0.2s;
+        }
+
+        .test-result-item:hover {
+            background: rgba(30, 41, 59, 0.8);
+            border-color: var(--border-light);
+            transform: translateX(4px);
+        }
+
+        .test-left {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            flex: 1;
+            min-width: 0;
+        }
+
+        .test-name {
+            font-size: 14px;
+            font-weight: 700;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .trend-icon {
+            font-size: 12px;
+        }
+
+        .test-ref {
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+
+        .test-right {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-left: 12px;
+        }
+
+        .test-value {
+            font-size: 16px;
+            font-weight: 800;
+            color: var(--text-primary);
+        }
+
+        .test-value.high { color: #fca5a5; }
+        .test-value.low { color: #93c5fd; }
+        .test-value.normal { color: var(--accent-green); }
+
+        .test-unit {
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        .test-status-badge {
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 700;
+            white-space: nowrap;
+        }
+
+        .test-status-badge.high {
+            background: rgba(239, 68, 68, 0.15);
+            color: #fca5a5;
+        }
+
+        .test-status-badge.low {
+            background: rgba(59, 130, 246, 0.15);
+            color: #93c5fd;
+        }
+
+        .test-status-badge.normal {
+            background: rgba(16, 185, 129, 0.15);
+            color: #86efac;
+        }
+
+        /* Empty State */
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: var(--text-muted);
+        }
+
+        .empty-state-icon {
+            font-size: 40px;
+            margin-bottom: 12px;
+            opacity: 0.5;
+        }
+
+        .empty-state-text {
+            font-size: 13px;
+            line-height: 1.5;
+        }
+
+        /* Scrollbar Styling */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 3px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        /* Markdown Formatting */
+        .markdown-content strong {
+            color: var(--text-primary);
+        }
+        
+        .markdown-content ul {
+            margin: 10px 0;
+            padding-left: 20px;
+        }
+
+        .markdown-content li {
+            margin: 8px 0;
+            line-height: 1.6;
+        }
+
+        #file-input-hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+
+<div class="resizable-container" id="main-layout">
+    
+    <!-- LEFT: PDF VIEWER -->
+    <div class="pdf-section">
+        <div class="pdf-toolbar-top">
+            <div class="toolbar-group">
+                <button class="toolbar-btn" onclick="zoomOut()" title="Zoom Out">−</button>
+                <span class="zoom-display" id="zoom-level">100%</span>
+                <button class="toolbar-btn" onclick="zoomIn()" title="Zoom In">+</button>
+            </div>
+            <div class="toolbar-group">
+                <button class="toolbar-btn" onclick="fitToWidth()" title="Fit to Width">⤢</button>
+                <button class="toolbar-btn" onclick="resetZoom()" title="Reset">↺</button>
+                <button class="toolbar-btn" onclick="rotatePDF()" title="Rotate">⟳</button>
+            </div>
+        </div>
+
+        <div class="pdf-container" id="pdf-viewer">
+            <!-- Upload Area -->
+            <div class="upload-area" id="upload-area" onclick="document.getElementById('file-input-hidden').click()">
+                <div class="upload-icon-circle">↑</div>
+                <div class="upload-title">Upload Medical Report</div>
+                <div class="upload-subtitle">Drop PDF here or click to browse</div>
+                <div class="file-type-buttons">
+                    <span class="file-type-btn">PDF</span>
+                </div>
+            </div>
+
+            <!-- PDF Iframe — native browser PDF renderer -->
+            <div class="pdf-iframe-wrapper" id="pdf-iframe-wrapper">
+                <!-- Iframe will be injected here by JavaScript -->
+            </div>
+
+            <input type="file" id="file-input-hidden" name="file" accept=".pdf">
+        </div>
+    </div>
+
+    <!-- Resize Handle -->
+    <div class="resize-handle" data-resize="pdf"></div>
+
+    <!-- MIDDLE: CHAT -->
+    <div class="chat-section">
+        <!-- FIX 2: New clean header replacing the purple gradient -->
+        <div class="chat-header">
+            <div class="header-left">
+                <div class="header-icon">🩺</div>
+                <div class="header-text">
+                    <h1>Medical Report Assistant</h1>
+                    <p>Upload a report to begin analysis</p>
+                </div>
+            </div>
+            <div class="header-badge">
+                <div class="header-badge-dot"></div>
+                AI Ready
+            </div>
+        </div>
+        
+        <div class="message-container" id="message-container">
+            <div class="message bot">
+                <div>
+                    <div class="content">
+                        Hello! Analyze your <strong>Medical Report</strong><br><br>
+                        • <strong>Normal Report PDF</strong><br>
+                        • <strong>Scanned report PDF</strong><br>
+                        • <strong>Lab Results PDF</strong><br><br>
+                        Would you like me to explain any of these in more detail?
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="input-container">
+            <!-- FIX 4: Added "Show all tests" quick prompt -->
+            <div class="quick-prompts-container" id="quick-prompts">
+                <button class="quick-prompt-btn" data-query="Summarize report">Summarize report</button>
+                <button class="quick-prompt-btn" data-query="Flag abnormal values">Flag abnormal values</button>
+                <button class="quick-prompt-btn" data-query="Explain in simple terms">Explain in simple terms</button>
+                <button class="quick-prompt-btn" data-query="show all tests">Show all tests</button>
+                <button class="quick-prompt-btn" data-query="Explain possible reason for abnormal values?">Explain possible reason for abnormal values</button>
+            </div>
+            
+            <form class="query-form" id="query-form">
+                <input type="text" id="query-input" placeholder="Ask about your report..." disabled>
+                <button type="submit" class="send-btn" id="send-btn" disabled>➤</button>
+            </form>
+            
+            <p class="disclaimer">AI responses are for informational purposes only. Always consult a healthcare professional.</p>
+        </div>
+    </div>
+
+    <!-- Resize Handle -->
+    <div class="resize-handle" data-resize="dashboard"></div>
+
+    <!-- RIGHT: DASHBOARD -->
+    <div class="dashboard-section">
+        <div class="dashboard-header">
+            <div class="dashboard-header-top">
+                <div>
+                    <h2>Health Dashboard</h2>
+                    <div class="dashboard-date">CBC Panel • Nov 28, 2024</div>
+                </div>
+                <span class="review-badge">Review Needed</span>
+            </div>
+        </div>
+        
+        <div class="dashboard-content">
+            
+            <!-- Health Score -->
+            <div class="score-card-main">
+                <div class="score-card-title">Overall Health Score</div>
+                <div style="margin-bottom: 8px;">
+                    <span class="score-value-large" id="dash-score-value">--</span>
+                    <span class="score-max-small">/100</span>
+                </div>
+                <div class="score-status-label" id="dash-score-status">Analyzing...</div>
+                <div class="score-stats" id="dash-score-stats">
+                    <div class="stat-item"><span class="stat-dot critical"></span><span style="color:var(--text-secondary)">0 critical</span></div>
+                    <div class="stat-item"><span class="stat-dot abnormal"></span><span style="color:var(--text-secondary)">0 abnormal</span></div>
+                    <div class="stat-item"><span class="stat-dot normal"></span><span style="color:var(--text-secondary)">0 normal</span></div>
+                </div>
+            </div>
+
+            <!-- Alert Cards -->
+            <div class="alerts-row">
+                <div class="alert-mini-card">
+                    <div class="alert-icon red">⚠️</div>
+                    <div class="alert-info">
+                        <h4 id="alert-abnormal-count">0</h4>
+                        <span>Alerts</span>
+                    </div>
+                </div>
+                <div class="alert-mini-card">
+                    <div class="alert-icon green">✓</div>
+                    <div class="alert-info">
+                        <h4 id="alert-normal-count">0</h4>
+                        <span>Normal</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab Navigation -->
+            <div class="tab-nav">
+                <button class="tab-btn active" data-tab="all" onclick="filterTests('all', this)">All</button>
+                <button class="tab-btn" data-tab="abnormal" onclick="filterTests('abnormal', this)">Abnormal</button>
+                <button class="tab-btn" data-tab="normal" onclick="filterTests('normal', this)">Normal</button>
+            </div>
+
+            <!-- Attention Required -->
+            <div class="attention-card" id="attention-card" style="display:none;">
+                <div class="attention-header">
+                    <span class="attention-icon">⚠️</span>
+                    <span class="attention-title">Attention Required</span>
+                </div>
+                <div class="attention-subtitle" id="attention-count">0 values outside reference range</div>
+            </div>
+
+            <!-- Test Results List - DYNAMIC -->
+            <div class="test-results-list" id="test-results-list">
+                <div class="empty-state">
+                    <div class="empty-state-icon">⏳</div>
+                    <p class="empty-state-text">Upload a PDF to view<br>your test results here</p>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+</div>
+
+<script>
+    // ==========================================
+    // STATE MANAGEMENT
+    // ==========================================
+    let currentPdfUrl = null;
+    let cachedTableData = [];
+    let pdfZoomLevel = 100;
+    let pdfRotation = 0;
+    let currentFilter = 'all';
+
+    // ==========================================
+    // RESIZABLE PANELS
+    // ==========================================
+    (function() {
+        const handles = document.querySelectorAll('.resize-handle');
+        let currentHandle = null;
+        let startX = 0;
+        let startWidth = 0;
+
+        handles.forEach(handle => {
+            handle.addEventListener('mousedown', initResize);
+            handle.addEventListener('touchstart', initResize, { passive: false });
+        });
+
+        function initResize(e) {
+            e.preventDefault();
+            currentHandle = e.target;
+            startX = e.type === 'touchstart' ? e.touches[0].clientX : e.clientX;
+
+            const target = currentHandle.dataset.resize === 'pdf' 
+                ? document.querySelector('.pdf-section') 
+                : document.querySelector('.dashboard-section');
+            
+            startWidth = target.offsetWidth;
+
+            document.addEventListener('mousemove', doResize);
+            document.addEventListener('mouseup', stopResize);
+            document.addEventListener('touchmove', doResize, { passive: false });
+            document.addEventListener('touchend', stopResize);
+
+            currentHandle.style.background = 'linear-gradient(180deg, #8b5cf6, #7c3aed)';
+        }
+
+        function doResize(e) {
+            if (!currentHandle) return;
+            e.preventDefault();
+
+            const clientX = e.type === 'touchmove' ? e.touches[0].clientX : e.clientX;
+            const diff = clientX - startX;
+            
+            const target = currentHandle.dataset.resize === 'pdf' 
+                ? document.querySelector('.pdf-section') 
+                : document.querySelector('.dashboard-section');
+
+            const minWidth = currentHandle.dataset.resize === 'pdf' ? 420 : 300;
+            const maxWidth = currentHandle.dataset.resize === 'pdf' ? 680 : 450;
+            
+            let newWidth = startWidth + (currentHandle.dataset.resize === 'pdf' ? diff : -diff);
+            newWidth = Math.max(minWidth, Math.min(maxWidth, newWidth));
+
+            target.style.width = newWidth + 'px';
+            target.style.flex = 'none';
+        }
+
+        function stopResize() {
+            if (!currentHandle) return;
+            currentHandle.style.background = '';
+            currentHandle = null;
+            document.removeEventListener('mousemove', doResize);
+            document.removeEventListener('mouseup', stopResize);
+            document.removeEventListener('touchmove', doResize);
+            document.removeEventListener('touchend', stopResize);
+        }
+    })();
+
+    // ==========================================
+    // PDF ZOOM — uses #zoom parameter in URL for native PDF viewer
+    // ==========================================
+    function buildPdfSrc(url) {
+        return url + '#zoom=' + pdfZoomLevel + '&view=FitH';
+    }
+
+    function zoomIn() {
+        if (pdfZoomLevel < 300) {
+            pdfZoomLevel += 25;
+            refreshPdfIframe();
+        }
+    }
+
+    function zoomOut() {
+        if (pdfZoomLevel > 50) {
+            pdfZoomLevel -= 25;
+            refreshPdfIframe();
+        }
+    }
+
+    function resetZoom() {
+        pdfZoomLevel = 100;
+        pdfRotation = 0;
+        refreshPdfIframe();
+    }
+
+    function fitToWidth() {
+        pdfZoomLevel = 100;
+        refreshPdfIframe();
+    }
+
+    function rotatePDF() {
+        // Rotation not supported natively in iframe; visual only via wrapper transform
+        pdfRotation = (pdfRotation + 90) % 360;
+        const wrapper = document.getElementById('pdf-iframe-wrapper');
+        if (wrapper) {
+            wrapper.style.transform = pdfRotation !== 0 ? `rotate(${pdfRotation}deg)` : '';
+        }
+        const zoomDisplay = document.getElementById('zoom-level');
+        if (zoomDisplay) {
+            zoomDisplay.textContent = pdfZoomLevel + '%';
+        }
+    }
+
+    function refreshPdfIframe() {
+        // Update zoom display safely
+        const zoomDisplay = document.getElementById('zoom-level');
+        if (zoomDisplay) {
+            zoomDisplay.textContent = pdfZoomLevel + '%';
+        }
+        
+        if (!currentPdfUrl) return;
+        
+        const wrapper = document.getElementById('pdf-iframe-wrapper');
+        if (!wrapper) return; // Safety check
+        
+        const iframe = wrapper.querySelector('iframe');
+        if (iframe) {
+            iframe.src = buildPdfSrc(currentPdfUrl);
+        }
+    }
+
+    // ==========================================
+    // DOM ELEMENTS - Safe initialization with null checks
+    // ==========================================
+    const fileInput = document.getElementById('file-input-hidden');
+    const queryForm = document.getElementById('query-form');
+    const queryInput = document.getElementById('query-input');
+    const sendBtn = document.getElementById('send-btn');
+    const messageContainer = document.getElementById('message-container');
+    const uploadArea = document.getElementById('upload-area');
+    const pdfIframeWrapper = document.getElementById('pdf-iframe-wrapper');
+    // NOTE: removed recentFilesSection reference (element doesn't exist in HTML)
+    const testResultsList = document.getElementById('test-results-list');
+
+    const dashScoreValue = document.getElementById('dash-score-value');
+    const dashScoreStatus = document.getElementById('dash-score-status');
+    const dashScoreStats = document.getElementById('dash-score-stats');
+    const alertAbnormalCount = document.getElementById('alert-abnormal-count');
+    const alertNormalCount = document.getElementById('alert-normal-count');
+    const attentionCard = document.getElementById('attention-card');
+    const attentionCount = document.getElementById('attention-count');
+
+    // ==========================================
+    // FILE UPLOAD
+    // ==========================================
+    fileInput.addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        addMessage('bot', `📤 <strong>Processing ${file.name}...</strong><br>Please wait while I extract and analyze the data...`, 'info');
+
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+
+            const response = await fetch('/api/upload/', { method: 'POST', body: formData });
+            
+            if (!response.ok) throw new Error(`Server error: ${response.status}`);
+            
+            const result = await response.json();
+
+            queryInput.disabled = false;
+            sendBtn.disabled = false;
+            queryInput.placeholder = "Ask about your report...";
+            queryInput.focus();
+
+            // Show PDF - with null checks
+            if (file.type === 'application/pdf') {
+                if (currentPdfUrl) URL.revokeObjectURL(currentPdfUrl);
+                currentPdfUrl = URL.createObjectURL(file);
+                
+                // Hide upload area safely
+                if (uploadArea) {
+                    uploadArea.style.display = 'none';
+                }
+                
+                // Show PDF iframe
+                if (pdfIframeWrapper) {
+                    pdfIframeWrapper.classList.add('active');
+                    pdfIframeWrapper.innerHTML = `<iframe src="${buildPdfSrc(currentPdfUrl)}" style="width:100%;height:100%;border:none;"></iframe>`;
+                }
+                
+                // Update zoom display
+                const zoomDisplay = document.getElementById('zoom-level');
+                if (zoomDisplay) {
+                    zoomDisplay.textContent = pdfZoomLevel + '%';
                 }
             }
 
-            messageDiv.innerHTML = `<div class="content">${contentHtml}</div>`;
-            messageContainer.appendChild(messageDiv);
-            messageContainer.scrollTop = messageContainer.scrollHeight;
-        }
+            handleUploadResponse(result);
 
-        function createTableHtml(data) {
-            if (!data || data.length === 0) return '<p>No data to display.</p>';
-            let tableHtml = '<table class="results-table"><thead><tr><th>Test</th><th>Value</th><th>Unit</th><th>Range</th><th>Status</th></tr></thead><tbody>';
-            data.forEach(row => {
-                let statusClass = 'status-unknown';
-                if (row.status === "HIGH") statusClass = 'status-high';
-                else if (row.status === "LOW") statusClass = 'status-low';
-                else if (row.status === "NORMAL") statusClass = 'status-normal';
-                
-                tableHtml += `<tr>
-                    <td>${row.test || ''}</td>
-                    <td>${row.value || ''}</td>
-                    <td>${row.unit || ''}</td>
-                    <td>${row.range || ''}</td>
-                    <td><span class="${statusClass}">${row.status || 'N/A'}</span></td>
-                </tr>`;
+        } catch (error) {
+            addMessage('bot', `❌ <strong>Error:</strong> ${error.message}`, 'error');
+        }
+    });
+
+    // ==========================================
+    // QUERY HANDLER
+    // ==========================================
+    queryForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const question = queryInput.value.trim();
+        if (!question) return;
+
+        addMessage('user', question);
+        queryInput.value = '';
+
+        const typingId = showTypingIndicator();
+
+        try {
+            const response = await fetch('/api/query/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ question })
             });
-            return tableHtml + '</tbody></table>';
+
+            if (!response.ok) throw new Error(`Query failed: ${response.status}`);
+            
+            const data = await response.json();
+            removeTypingIndicator(typingId);
+            handleQueryResponse(data, question);
+
+        } catch (error) {
+            removeTypingIndicator(typingId);
+            addMessage('bot', `❌ <strong>Error:</strong> ${error.message}`, 'error');
+        }
+    });
+
+    // ==========================================
+    // RESPONSE HANDLERS
+    // ==========================================
+    function handleUploadResponse(result) {
+        let msg = '';
+        if (result.message) msg += `✅ ${result.message}<br><br>`;
+        if (result.test_count !== undefined) msg += `🔬 <strong>Tests Found:</strong> ${result.test_count}<br>`;
+        if (result.abnormal_count > 0) msg += `⚠️ <strong>Abnormal:</strong> ${result.abnormal_count}<br>`;
+        
+        addMessage('bot', msg || '✅ Report uploaded successfully!', 'success');
+        setTimeout(() => fetchDashboardData(), 500);
+    }
+
+    function handleQueryResponse(data) {
+        if (data.type === 'table' && Array.isArray(data.data)) {
+            cachedTableData = data.data;
+            updateDashboardFromTableData(data.data);
+            addMessage('bot', createEnhancedTableHtml(data.data));
+        } else if (data.type === 'text') {
+            const scoreMatch = data.answer?.match(/Health Score:\s*(\d+\.?\d*)\/?\s*100\s*[—\-–]\s*(.*?)(?:\n|$)/i);
+            if (scoreMatch) {
+                updateHealthScore(parseFloat(scoreMatch[1]), scoreMatch[2].trim());
+            }
+            addMessage('bot', `<div class="response-card markdown-content">${formatMarkdown(data.answer)}</div>`);
+        } else {
+            addMessage('bot', formatMarkdown(JSON.stringify(data)));
+        }
+    }
+
+    // ==========================================
+    // TAB FILTERING
+    // ==========================================
+    function filterTests(filterType, btnElement) {
+        currentFilter = filterType;
+        document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+        if (btnElement) btnElement.classList.add('active');
+        if (cachedTableData.length > 0) {
+            renderTestResults(cachedTableData, filterType);
+        }
+    }
+
+    // ==========================================
+    // DASHBOARD UPDATE FUNCTIONS
+    // ==========================================
+    async function fetchDashboardData() {
+        try {
+            showLoadingState();
+            const response = await fetch('/api/query/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ question: 'show all tests' })
+            });
+            const data = await response.json();
+            if (data.type === 'table' && Array.isArray(data.data)) {
+                cachedTableData = data.data;
+                updateDashboardFromTableData(data.data);
+            }
+        } catch (e) {
+            console.log('Dashboard fetch skipped:', e.message);
+        }
+    }
+
+    function updateDashboardFromTableData(data) {
+        if (!Array.isArray(data) || data.length === 0) return;
+
+        const critical = data.filter(r => r.status === 'HIGH').length;
+        const abnormal = data.filter(r => r.status === 'HIGH' || r.status === 'LOW').length;
+        const normal = data.filter(r => r.status === 'NORMAL').length;
+
+        // Safe updates with null checks
+        if (alertAbnormalCount) alertAbnormalCount.textContent = abnormal;
+        if (alertNormalCount) alertNormalCount.textContent = normal;
+
+        if (dashScoreStats) {
+            dashScoreStats.innerHTML = `
+                <div class="stat-item"><span class="stat-dot critical"></span><span style="color:var(--text-secondary)">${critical} critical</span></div>
+                <div class="stat-item"><span class="stat-dot abnormal"></span><span style="color:var(--text-secondary)">${abnormal} abnormal</span></div>
+                <div class="stat-item"><span class="stat-dot normal"></span><span style="color:var(--text-secondary)">${normal} normal</span></div>
+            `;
         }
 
-        function createHealthScoreCard(fullText, match) {
-            const score = parseFloat(match[1]);
-            const status = match[2];
-            const summary = fullText.split('\n\n')[0];
+        if (abnormal > 0) {
+            if (attentionCard) attentionCard.style.display = 'block';
+            if (attentionCount) attentionCount.textContent = `${abnormal} value${abnormal !== 1 ? 's' : ''} outside reference range`;
+        } else {
+            if (attentionCard) attentionCard.style.display = 'none';
+        }
 
-            let scoreColor = 'var(--status-unknown)';
-            if (status === 'Excellent' || status === 'Good') scoreColor = 'var(--status-normal)';
-            if (status === 'Mild Concern' || status === 'Moderate Risk') scoreColor = '#f57c00'; // Orange for moderate
-            if (status === 'High Risk') scoreColor = 'var(--status-high)';
+        renderTestResults(data, currentFilter);
 
-            return `
-                <div class="health-score-card">
-                    <p>${summary}</p>
-                    <div class="score" style="color: ${scoreColor};">${score}</div>
-                    <div class="status">${status}</div>
-                    <div class="progress-bar">
-                        <div class="progress-bar-inner" style="width: ${score}%; background-color: ${scoreColor};"></div>
+        const score = Math.round(((data.length - abnormal) / data.length) * 100);
+        let status = 'Excellent';
+        if (score < 80) status = 'Good';
+        if (score < 60) status = 'Moderate';
+        if (score < 40) status = 'Needs Attention';
+        
+        updateHealthScore(score, status);
+    }
+
+    function renderTestResults(data, filter = 'all') {
+        // Safety check: ensure testResultsList exists
+        if (!testResultsList) {
+            console.error('test-results-list element not found!');
+            return;
+        }
+        
+        let filteredData = data;
+        
+        if (filter === 'abnormal') {
+            filteredData = data.filter(item => item.status === 'HIGH' || item.status === 'LOW');
+        } else if (filter === 'normal') {
+            filteredData = data.filter(item => item.status === 'NORMAL');
+        }
+
+        if (filteredData.length === 0) {
+            testResultsList.innerHTML = `
+                <div class="empty-state">
+                    <div class="empty-state-icon">${filter === 'abnormal' ? '✅' : filter === 'normal' ? '⚠️' : '📊'}</div>
+                    <p class="empty-state-text">${
+                        filter === 'abnormal' ? 'No abnormal values! All tests are within range.' :
+                        filter === 'normal' ? 'No normal values to display.' :
+                        'No test data available.'
+                    }</p>
+                </div>
+            `;
+            return;
+        }
+
+        let html = '';
+        filteredData.forEach(item => {
+            const isHigh = item.status === 'HIGH';
+            const isLow = item.status === 'LOW';
+            const isAbnormal = isHigh || isLow;
+            const trendIcon = isHigh ? '↗' : isLow ? '↘' : '→';
+            const valueClass = isHigh ? 'high' : isLow ? 'low' : 'normal';
+            const statusText = isHigh ? 'High' : isLow ? 'Low' : 'Normal';
+
+            html += `
+                <div class="test-result-item">
+                    <div class="test-left">
+                        <div class="test-name">${escapeHtml(item.test || 'Unknown')} <span class="trend-icon">${trendIcon}</span></div>
+                        <div class="test-ref">ref: ${escapeHtml(item.range || 'N/A')}</div>
+                    </div>
+                    <div class="test-right">
+                        <span class="test-value ${valueClass}">${escapeHtml(item.value || '--')}</span>
+                        <span class="test-unit">${escapeHtml(item.unit || '')}</span>
+                        <span class="test-status-badge ${isAbnormal ? (isHigh ? 'high' : 'low') : 'normal'}">${statusText}</span>
                     </div>
                 </div>
             `;
+        });
+
+        testResultsList.innerHTML = `<div class="test-results-list">${html}</div>`;
+    }
+
+    function updateHealthScore(score, status) {
+        if (isNaN(score)) score = 0;
+        score = Math.max(0, Math.min(100, Math.round(score)));
+        
+        // Safe updates with null checks
+        if (dashScoreValue) dashScoreValue.textContent = score;
+        if (dashScoreStatus) dashScoreStatus.textContent = status || 'Calculating...';
+    }
+
+    // ==========================================
+    // UI HELPERS
+    // ==========================================
+    function showLoadingState() {
+        if (!testResultsList) return;
+        
+        testResultsList.innerHTML = `
+            <div class="empty-state">
+                <div class="empty-state-icon">⏳</div>
+                <p class="empty-state-text">Loading test results...</p>
+            </div>
+        `;
+    }
+
+    function addMessage(sender, content, type = '') {
+        const div = document.createElement('div');
+        div.className = `message ${sender}`;
+        
+        let extraStyle = '';
+        if (type === 'success') extraStyle = 'color: #86efac;';
+        else if (type === 'error') extraStyle = 'color: #fca5a5;';
+        else if (type === 'info') extraStyle = 'color: #93c5fd;';
+
+        div.innerHTML = `<div class="content" style="${extraStyle}">${content}</div>`;
+        messageContainer.appendChild(div);
+        scrollToBottom();
+    }
+
+    function showTypingIndicator() {
+        const id = 'typing-' + Date.now();
+        const div = document.createElement('div');
+        div.id = id;
+        div.className = 'message bot';
+        div.innerHTML = `
+            <div class="content" style="padding: 20px 24px;">
+                <div style="display:flex;gap:6px;">
+                    <span style="width:8px;height:8px;background:#64748b;border-radius:50%;animation:bounce 1.4s infinite both;"></span>
+                    <span style="width:8px;height:8px;background:#64748b;border-radius:50%;animation:bounce 1.4s infinite both 0.16s;"></span>
+                    <span style="width:8px;height:8px;background:#64748b;border-radius:50%;animation:bounce 1.4s infinite both 0.32s;"></span>
+                </div>
+            </div>
+            <style>@keyframes bounce{0%,80%,100%{transform:scale(0.6)}40%{transform:scale(1)}}</style>
+        `;
+        messageContainer.appendChild(div);
+        scrollToBottom();
+        return id;
+    }
+
+    function removeTypingIndicator(id) {
+        const el = document.getElementById(id);
+        if (el) el.remove();
+    }
+
+    function scrollToBottom() {
+        requestAnimationFrame(() => {
+            messageContainer.scrollTo({ top: messageContainer.scrollHeight, behavior: 'smooth' });
+        });
+    }
+
+    function escapeHtml(text) {
+        if (!text) return '';
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    function formatMarkdown(text) {
+        if (!text) return '';
+        return escapeHtml(text)
+            .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+            .replace(/\n/g, '<br>')
+            .replace(/^•\s+(.+)$/gm, '<li>$1</li>');
+    }
+
+    function createEnhancedTableHtml(data) {
+        if (!data?.length) return '<div class="response-card"><p>No data available.</p></div>';
+
+        const abnormal = data.filter(r => r.status === 'HIGH' || r.status === 'LOW').length;
+        const normal = data.filter(r => r.status === 'NORMAL').length;
+
+        let html = `<div class="response-card">
+            <div style="display:flex;gap:16px;margin-bottom:14px;font-size:13px;color:var(--text-secondary);">
+                <span>📊 ${data.length} total</span>
+                <span style="color:#fca5a5;">⚠️ ${abnormal} abnormal</span>
+                <span style="color:#86efac;">✅ ${normal} normal</span>
+            </div>
+            <table class="results-table">
+                <thead><tr><th>Test</th><th>Value</th><th>Unit</th><th>Range</th><th>Status</th></tr></thead><tbody>`;
+
+        data.forEach(row => {
+            const cls = row.status === 'HIGH' ? 'status-high' : row.status === 'LOW' ? 'status-low' : 'status-normal';
+            html += `<tr>
+                <td><strong>${escapeHtml(row.test)}</strong></td>
+                <td>${escapeHtml(row.value)}</td>
+                <td>${escapeHtml(row.unit)}</td>
+                <td style="color:var(--text-muted);font-size:12px;">${escapeHtml(row.range)}</td>
+                <td><span class="${cls}">${row.status}</span></td>
+            </tr>`;
+        });
+
+        html += '</tbody></table></div>';
+        return html;
+    }
+
+    // ==========================================
+    // QUICK PROMPTS & KEYBOARD
+    // ==========================================
+    document.querySelectorAll('.quick-prompt-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            if (queryInput.disabled) return;
+            queryInput.value = btn.dataset.query;
+            queryForm.dispatchEvent(new Event('submit'));
+        });
+    });
+
+    queryInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            queryForm.dispatchEvent(new Event('submit'));
         }
-    </script>
+    });
+
+    messageContainer.addEventListener('click', () => {
+        if (!queryInput.disabled) queryInput.focus();
+    });
+
+</script>
+
+</body>
+</html> {% endcomment %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Medical Report AI Assistant</title>
+    <style>
+        :root {
+            --primary-purple: #8b5cf6;
+            --primary-purple-dark: #7c3aed;
+            --bg-dark: #0f172a;
+            --bg-dark-elevated: #1e293b;
+            --bg-dark-surface: #334155;
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --border-dark: rgba(255, 255, 255, 0.08);
+            --border-light: rgba(255, 255, 255, 0.12);
+            --accent-green: #10b981;
+            --accent-red: #ef4444;
+            --accent-amber: #f59e0b;
+            --accent-blue: #3b82f6;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Inter', sans-serif;
+            background-color: var(--bg-dark);
+            color: var(--text-primary);
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .resizable-container {
+            display: flex;
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+            background: var(--bg-dark);
+        }
+
+        .resize-handle {
+            width: 4px;
+            background: transparent;
+            cursor: col-resize;
+            flex-shrink: 0;
+            transition: all 0.2s;
+            position: relative;
+            z-index: 100;
+        }
+
+        .resize-handle:hover {
+            background: linear-gradient(180deg, var(--primary-purple), var(--primary-purple-dark));
+            box-shadow: 0 0 12px rgba(139, 92, 246, 0.4);
+        }
+
+        .pdf-section {
+            min-width: 420px;
+            max-width: 680px;
+            width: 480px;
+            background: var(--bg-dark);
+            display: flex;
+            flex-direction: column;
+            border-right: 1px solid var(--border-dark);
+            flex-shrink: 0;
+        }
+
+        .dashboard-section {
+            min-width: 300px;
+            max-width: 450px;
+            background: var(--bg-dark);
+            border-left: 1px solid var(--border-dark);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .chat-section {
+            flex: 1;
+            min-width: 400px;
+            display: flex;
+            flex-direction: column;
+            background: var(--bg-dark);
+        }
+
+        /* PDF Viewer Toolbar */
+        .pdf-toolbar-top {
+            padding: 12px 16px;
+            background: var(--bg-dark-elevated);
+            border-bottom: 1px solid var(--border-dark);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+        }
+
+        .toolbar-group { display: flex; align-items: center; gap: 8px; }
+
+        .toolbar-btn {
+            width: 32px;
+            height: 32px;
+            border: none;
+            background: transparent;
+            color: var(--text-secondary);
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .toolbar-btn:hover {
+            background: rgba(139, 92, 246, 0.15);
+            color: var(--primary-purple);
+        }
+
+        .zoom-display {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-primary);
+            min-width: 45px;
+            text-align: center;
+        }
+
+        /* PDF Container */
+        .pdf-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background: var(--bg-dark);
+            position: relative;
+        }
+
+        .upload-area {
+            width: 100%;
+            max-width: 400px;
+            aspect-ratio: 4/3;
+            border: 2px dashed var(--border-light);
+            border-radius: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 16px;
+            cursor: pointer;
+            transition: all 0.3s;
+            background: rgba(30, 41, 59, 0.5);
+            margin-bottom: 24px;
+        }
+
+        .upload-area:hover {
+            border-color: var(--primary-purple);
+            background: rgba(139, 92, 246, 0.08);
+            transform: translateY(-2px);
+        }
+
+        .upload-icon-circle {
+            width: 72px;
+            height: 72px;
+            background: linear-gradient(135deg, rgba(124, 58, 237, 0.2), rgba(167, 139, 250, 0.15));
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 32px;
+            box-shadow: 0 8px 24px rgba(124, 58, 237, 0.25);
+        }
+
+        .upload-title { font-size: 17px; font-weight: 700; color: var(--text-primary); }
+        .upload-subtitle { font-size: 13px; color: var(--text-muted); text-align: center; line-height: 1.5; }
+        
+        .file-type-buttons { display: flex; gap: 8px; margin-top: 8px; }
+        .file-type-btn {
+            padding: 6px 14px;
+            background: var(--bg-dark-surface);
+            border: 1px solid var(--border-dark);
+            border-radius: 6px;
+            color: var(--text-secondary);
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .file-type-btn:hover { background: var(--bg-dark-elevated); border-color: var(--border-light); color: var(--text-primary); }
+
+        /* PDF Iframe */
+        .pdf-iframe-wrapper {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: #525659;
+            border-radius: 8px;
+            overflow: auto;
+            display: none;
+        }
+
+        .pdf-iframe-wrapper.active { display: block; }
+
+        .pdf-iframe-wrapper iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+            transform-origin: top left center;
+            transition: transform 0.2s ease;
+        }
+
+        /* Chat Header */
+        .chat-header {
+            padding: 16px 24px;
+            background: var(--bg-dark-elevated);
+            border-bottom: 1px solid var(--border-dark);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .header-left { display: flex; align-items: center; gap: 12px; }
+
+        .header-icon {
+            width: 36px;
+            height: 36px;
+            background: rgba(139, 92, 246, 0.15);
+            border: 1px solid rgba(139, 92, 246, 0.3);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+        }
+
+        .header-text h1 { font-size: 15px; font-weight: 700; color: var(--text-primary); line-height: 1.2; }
+        .header-text p { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+
+        .header-badge {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid rgba(16, 185, 129, 0.2);
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--accent-green);
+        }
+
+        .header-badge-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--accent-green);
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+        /* Message Container */
+        .message-container {
+            flex: 1;
+            padding: 24px 28px;
+            overflow-y: auto;
+            background: var(--bg-dark);
+            scroll-behavior: smooth;
+        }
+
+        .message {
+            margin-bottom: 24px;
+            display: flex;
+            animation: fadeInUp 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        @keyframes fadeInUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+
+        .message.bot { justify-content: flex-start; }
+        .message.user { justify-content: flex-end; }
+
+        .content {
+            max-width: 85%;
+            padding: 18px 22px;
+            border-radius: 18px;
+            line-height: 1.7;
+            font-size: 14px;
+            word-wrap: break-word;
+        }
+
+        .message.bot .content {
+            background: var(--bg-dark-elevated);
+            color: var(--text-primary);
+            border: 1px solid var(--border-dark);
+            border-bottom-left-radius: 6px;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+        }
+
+        .message.user .content {
+            background: linear-gradient(135deg, var(--primary-purple), var(--primary-purple-dark));
+            color: white;
+            border-bottom-right-radius: 6px;
+            box-shadow: 0 4px 16px rgba(124, 58, 237, 0.35);
+        }
+
+        /* Response Cards */
+        .response-card {
+            background: rgba(30, 41, 59, 0.5);
+            border: 1px solid var(--border-dark);
+            border-radius: 14px;
+            padding: 18px;
+            margin-top: 14px;
+        }
+
+        .results-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 10px; }
+        .results-table th, .results-table td { padding: 11px 14px; text-align: left; border-bottom: 1px solid var(--border-dark); }
+        .results-table th { background: rgba(51, 65, 85, 0.5); font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-secondary); }
+        .results-table tbody tr:hover { background: rgba(139, 92, 246, 0.08); }
+
+        .status-high { color: #fca5a5; font-weight: 700; background: rgba(239, 68, 68, 0.15); padding: 3px 10px; border-radius: 5px; font-size: 11px; }
+        .status-low { color: #93c5fd; font-weight: 700; background: rgba(59, 130, 246, 0.15); padding: 3px 10px; border-radius: 5px; font-size: 11px; }
+        .status-normal { color: #86efac; font-weight: 700; background: rgba(16, 185, 129, 0.15); padding: 3px 10px; border-radius: 5px; font-size: 11px; }
+        .status-unknown { color: var(--text-muted); background: rgba(100, 116, 139, 0.15); padding: 3px 10px; border-radius: 5px; font-size: 11px; }
+
+        /* Health Score Inline */
+        .health-score-inline { text-align: center; padding: 20px; background: rgba(30, 41, 59, 0.6); border-radius: 12px; margin-top: 12px; }
+        .health-score-inline .score-big { font-size: 48px; font-weight: 800; background: linear-gradient(135deg, var(--accent-green), #34d399); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .health-score-inline .score-status-text { font-size: 16px; font-weight: 600; color: var(--accent-amber); margin: 8px 0; }
+        .health-score-inline .progress-bar-container { width: 70%; height: 8px; background: rgba(255, 255, 255, 0.1); border-radius: 4px; margin: 14px auto 0; overflow: hidden; }
+        .health-score-inner-bar { height: 100%; border-radius: 4px; transition: width 1s ease-out; }
+
+        /* Input Area */
+        .input-container { padding: 20px 28px 24px; background: var(--bg-dark); border-top: 1px solid var(--border-dark); }
+        .quick-prompts-container { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+        
+        .quick-prompt-btn {
+            padding: 8px 16px;
+            border: 1px solid var(--border-light);
+            border-radius: 20px;
+            background: transparent;
+            color: var(--text-secondary);
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.25s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .quick-prompt-btn:hover {
+            border-color: var(--primary-purple);
+            color: var(--primary-purple);
+            background: rgba(139, 92, 246, 0.1);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(139, 92, 246, 0.2);
+        }
+
+        .query-form { display: flex; gap: 12px; align-items: center; }
+
+        #query-input {
+            flex-grow: 1;
+            padding: 14px 20px;
+            border: 1px solid var(--border-light);
+            border-radius: 26px;
+            font-size: 14px;
+            transition: all 0.3s;
+            background: var(--bg-dark-elevated);
+            color: var(--text-primary);
+        }
+
+        #query-input::placeholder { color: var(--text-muted); }
+        #query-input:focus { outline: none; border-color: var(--primary-purple); box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.15); background: var(--bg-dark-surface); }
+        #query-input:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .send-btn {
+            width: 44px;
+            height: 44px;
+            border: none;
+            border-radius: 50%;
+            background: var(--bg-dark-surface);
+            color: var(--text-muted);
+            cursor: pointer;
+            font-size: 18px;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .send-btn:not(:disabled):hover { background: var(--primary-purple); color: white; transform: scale(1.05); box-shadow: 0 4px 16px rgba(139, 92, 246, 0.4); }
+        .send-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+        .disclaimer { font-size: 11px; color: var(--text-muted); text-align: center; margin-top: 12px; line-height: 1.5; }
+
+        /* Dashboard Section */
+        .dashboard-header { padding: 20px 22px; background: var(--bg-dark-elevated); border-bottom: 1px solid var(--border-dark); }
+        .dashboard-header-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; }
+        .dashboard-header h2 { font-size: 17px; font-weight: 700; color: var(--text-primary); }
+        .dashboard-date { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+        .review-badge { padding: 5px 12px; background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 6px; color: var(--accent-amber); font-size: 11px; font-weight: 700; }
+
+        .dashboard-content { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 16px; }
+
+        /* Health Score Card */
+        .score-card-main { background: linear-gradient(135deg, rgba(16, 185, 129, 0.12), rgba(52, 211, 153, 0.06)); border: 1px solid rgba(16, 185, 129, 0.2); border-radius: 18px; padding: 24px; text-align: center; }
+        .score-card-title { font-size: 13px; font-weight: 600; color: var(--text-secondary); margin-bottom: 16px; }
+        .score-value-large { font-size: 56px; font-weight: 900; color: var(--accent-green); line-height: 1; }
+        .score-max-small { font-size: 16px; color: var(--text-muted); font-weight: 600; }
+        .score-status-label { font-size: 20px; font-weight: 700; color: var(--accent-amber); margin-bottom: 12px; }
+        .score-stats { display: flex; justify-content: center; gap: 20px; font-size: 12px; }
+        .stat-item { display: flex; align-items: center; gap: 6px; }
+        .stat-dot { width: 8px; height: 8px; border-radius: 50%; }
+        .stat-dot.critical { background: var(--accent-red); }
+        .stat-dot.abnormal { background: var(--accent-amber); }
+        .stat-dot.normal { background: var(--accent-green); }
+
+        /* Alert Cards */
+        .alerts-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .alert-mini-card { background: var(--bg-dark-elevated); border: 1px solid var(--border-dark); border-radius: 14px; padding: 16px; display: flex; align-items: center; gap: 12px; transition: all 0.2s; }
+        .alert-mini-card:hover { background: rgba(30, 41, 59, 0.8); transform: translateY(-2px); }
+        .alert-icon { width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 18px; }
+        .alert-icon.red { background: rgba(239, 68, 68, 0.15); }
+        .alert-icon.green { background: rgba(16, 185, 129, 0.15); }
+        .alert-info h4 { font-size: 20px; font-weight: 800; color: var(--text-primary); line-height: 1; }
+        .alert-info span { font-size: 12px; color: var(--text-muted); }
+
+        /* Tab Navigation */
+        .tab-nav { display: flex; gap: 8px; background: var(--bg-dark-elevated); padding: 6px; border-radius: 10px; border: 1px solid var(--border-dark); }
+        .tab-btn { flex: 1; padding: 10px; border: none; background: transparent; color: var(--text-muted); font-size: 13px; font-weight: 600; border-radius: 7px; cursor: pointer; transition: all 0.2s; }
+        .tab-btn.active { background: var(--primary-purple); color: white; box-shadow: 0 2px 8px rgba(139, 92, 246, 0.3); }
+        .tab-btn:not(.active):hover { color: var(--text-secondary); background: rgba(255, 255, 255, 0.05); }
+
+        /* Attention Card */
+        .attention-card { background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.2); border-radius: 14px; padding: 16px; }
+        .attention-header { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+        .attention-icon { color: var(--accent-red); font-size: 16px; }
+        .attention-title { font-size: 13px; font-weight: 700; color: var(--accent-red); }
+        .attention-subtitle { font-size: 12px; color: var(--text-muted); }
+
+        /* Test Result Items */
+        .test-results-list { display: flex; flex-direction: column; gap: 10px; }
+        .test-result-item { background: var(--bg-dark-elevated); border: 1px solid var(--border-dark); border-radius: 12px; padding: 14px 16px; display: flex; justify-content: space-between; align-items: center; transition: all 0.2s; }
+        .test-result-item:hover { background: rgba(30, 41, 59, 0.8); border-color: var(--border-light); transform: translateX(4px); }
+        .test-left { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0; }
+        .test-name { font-size: 14px; font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 6px; }
+        .trend-icon { font-size: 12px; }
+        .test-ref { font-size: 11px; color: var(--text-muted); }
+        .test-right { display: flex; align-items: center; gap: 10px; margin-left: 12px; }
+        .test-value { font-size: 16px; font-weight: 800; color: var(--text-primary); }
+        .test-value.high { color: #fca5a5; }
+        .test-value.low { color: #93c5fd; }
+        .test-value.normal { color: var(--accent-green); }
+        .test-unit { font-size: 12px; color: var(--text-muted); }
+        .test-status-badge { padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 700; white-space: nowrap; }
+        .test-status-badge.high { background: rgba(239, 68, 68, 0.15); color: #fca5a5; }
+        .test-status-badge.low { background: rgba(59, 130, 246, 0.15); color: #93c5fd; }
+        .test-status-badge.normal { background: rgba(16, 185, 129, 0.15); color: #86efac; }
+
+        /* Empty State */
+        .empty-state { text-align: center; padding: 40px 20px; color: var(--text-muted); }
+        .empty-state-icon { font-size: 40px; margin-bottom: 12px; opacity: 0.5; }
+        .empty-state-text { font-size: 13px; line-height: 1.5; }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.2); }
+
+        .markdown-content strong { color: var(--text-primary); }
+        .markdown-content ul { margin: 10px 0; padding-left: 20px; }
+        .markdown-content li { margin: 8px 0; line-height: 1.6; }
+
+        #file-input-hidden { display: none; }
+    </style>
+</head>
+<body>
+
+<div class="resizable-container" id="main-layout">
+    
+    <!-- LEFT: PDF VIEWER -->
+    <div class="pdf-section">
+        <div class="pdf-toolbar-top">
+            <div class="toolbar-group">
+                <button class="toolbar-btn" onclick="zoomOut()" title="Zoom Out">−</button>
+                <span class="zoom-display" id="zoom-level">100%</span>
+                <button class="toolbar-btn" onclick="zoomIn()" title="Zoom In">+</button>
+            </div>
+            <div class="toolbar-group">
+                <button class="toolbar-btn" onclick="fitToWidth()" title="Fit to Width">⤢</button>
+                <button class="toolbar-btn" onclick="resetZoom()" title="Reset">↺</button>
+                <button class="toolbar-btn" onclick="rotatePDF()" title="Rotate">⟳</button>
+            </div>
+        </div>
+
+        <div class="pdf-container" id="pdf-viewer">
+            <div class="upload-area" id="upload-area" onclick="document.getElementById('file-input-hidden').click()">
+                <div class="upload-icon-circle">↑</div>
+                <div class="upload-title">Upload Medical Report</div>
+                <div class="upload-subtitle">Drop PDF here or click to browse</div>
+                <div class="file-type-buttons"><span class="file-type-btn">PDF</span></div>
+            </div>
+
+            <div class="pdf-iframe-wrapper" id="pdf-iframe-wrapper"></div>
+            <input type="file" id="file-input-hidden" name="file" accept=".pdf">
+        </div>
+    </div>
+
+    <!-- Resize Handle -->
+    <div class="resize-handle" data-resize="pdf"></div>
+
+    <!-- MIDDLE: CHAT -->
+    <div class="chat-section">
+        <div class="chat-header">
+            <div class="header-left">
+                <div class="header-icon">🩺</div>
+                <div class="header-text">
+                    <h1>Medical Report Assistant</h1>
+                    <p>Upload a report to begin analysis</p>
+                </div>
+            </div>
+            <div class="header-badge">
+                <div class="header-badge-dot"></div>
+                AI Ready
+            </div>
+        </div>
+        
+        <div class="message-container" id="message-container">
+            <div class="message bot">
+                <div>
+                    <div class="content">
+                        Hello! Analyze your <strong>Medical Report</strong><br><br>
+                        • <strong>Normal Report PDF</strong><br>
+                        • <strong>Scanned report PDF</strong><br>
+                        • <strong>Lab Results PDF</strong><br><br>
+                        Would you like me to explain any of these in more detail?
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="input-container">
+            <div class="quick-prompts-container" id="quick-prompts">
+                <button class="quick-prompt-btn" data-query="Summarize report">Summarize report</button>
+                <button class="quick-prompt-btn" data-query="Flag abnormal values">Flag abnormal values</button>
+                <button class="quick-prompt-btn" data-query="Explain in simple terms">Explain in simple terms</button>
+                <button class="quick-prompt-btn" data-query="show all tests">Show all tests</button>
+                <button class="quick-prompt-btn" data-query="What should I do next?">What should I do next?</button>
+            </div>
+            
+            <form class="query-form" id="query-form">
+                <input type="text" id="query-input" placeholder="Ask about your report..." disabled>
+                <button type="submit" class="send-btn" id="send-btn" disabled>➤</button>
+            </form>
+            
+            <p class="disclaimer">AI responses are for informational purposes only. Always consult a healthcare professional.</p>
+        </div>
+    </div>
+
+    <!-- Resize Handle -->
+    <div class="resize-handle" data-resize="dashboard"></div>
+
+    <!-- RIGHT: DASHBOARD -->
+    <div class="dashboard-section">
+        <div class="dashboard-header">
+            <div class="dashboard-header-top">
+                <div>
+                    <h2>Health Dashboard</h2>
+                    <div class="dashboard-date">CBC Panel • Nov 28, 2024</div>
+                </div>
+                <span class="review-badge">Review Needed</span>
+            </div>
+        </div>
+        
+        <div class="dashboard-content">
+            
+            <!-- Health Score -->
+            <div class="score-card-main">
+                <div class="score-card-title">Overall Health Score</div>
+                <div style="margin-bottom: 8px;">
+                    <span class="score-value-large" id="dash-score-value">--</span>
+                    <span class="score-max-small">/100</span>
+                </div>
+                <div class="score-status-label" id="dash-score-status">Analyzing...</div>
+                <div class="score-stats" id="dash-score-stats">
+                    <div class="stat-item"><span class="stat-dot critical"></span><span style="color:var(--text-secondary)">0 critical</span></div>
+                    <div class="stat-item"><span class="stat-dot abnormal"></span><span style="color:var(--text-secondary)">0 abnormal</span></div>
+                    <div class="stat-item"><span class="stat-dot normal"></span><span style="color:var(--text-secondary)">0 normal</span></div>
+                </div>
+            </div>
+
+            <!-- Alert Cards -->
+            <div class="alerts-row">
+                <div class="alert-mini-card">
+                    <div class="alert-icon red">⚠️</div>
+                    <div class="alert-info"><h4 id="alert-abnormal-count">0</h4><span>Alerts</span></div>
+                </div>
+                <div class="alert-mini-card">
+                    <div class="alert-icon green">✓</div>
+                    <div class="alert-info"><h4 id="alert-normal-count">0</h4><span>Normal</span></div>
+                </div>
+            </div>
+
+            <!-- Tab Navigation -->
+            <div class="tab-nav">
+                <button class="tab-btn active" data-tab="all" onclick="filterTests('all', this)">All</button>
+                <button class="tab-btn" data-tab="abnormal" onclick="filterTests('abnormal', this)">Abnormal</button>
+                <button class="tab-btn" data-tab="normal" onclick="filterTests('normal', this)">Normal</button>
+            </div>
+
+            <!-- Attention Required -->
+            <div class="attention-card" id="attention-card" style="display:none;">
+                <div class="attention-header">
+                    <span class="attention-icon">⚠️</span>
+                    <span class="attention-title">Attention Required</span>
+                </div>
+                <div class="attention-subtitle" id="attention-count">0 values outside reference range</div>
+            </div>
+
+            <!-- Test Results List -->
+            <div class="test-results-list" id="test-results-list">
+                <div class="empty-state">
+                    <div class="empty-state-icon">⏳</div>
+                    <p class="empty-state-text">Upload a PDF to view<br>your test results here</p>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+</div>
+
+<script>
+    // ==========================================
+    // STATE MANAGEMENT
+    // ==========================================
+    let currentPdfUrl = null;
+    let cachedTableData = [];
+    let pdfZoomLevel = 100;
+    let pdfRotation = 0;
+    let currentFilter = 'all';
+
+    // ==========================================
+    // RESIZABLE PANELS
+    // ==========================================
+    (function() {
+        const handles = document.querySelectorAll('.resize-handle');
+        let currentHandle = null;
+        let startX = 0;
+        let startWidth = 0;
+
+        handles.forEach(handle => {
+            handle.addEventListener('mousedown', initResize);
+            handle.addEventListener('touchstart', initResize, { passive: false });
+        });
+
+        function initResize(e) {
+            e.preventDefault();
+            currentHandle = e.target;
+            startX = e.type === 'touchstart' ? e.touches[0].clientX : e.clientX;
+
+            const target = currentHandle.dataset.resize === 'pdf' 
+                ? document.querySelector('.pdf-section') 
+                : document.querySelector('.dashboard-section');
+            
+            startWidth = target.offsetWidth;
+
+            document.addEventListener('mousemove', doResize);
+            document.addEventListener('mouseup', stopResize);
+            document.addEventListener('touchmove', doResize, { passive: false });
+            document.addEventListener('touchend', stopResize);
+
+            currentHandle.style.background = 'linear-gradient(180deg, #8b5cf6, #7c3aed)';
+        }
+
+        function doResize(e) {
+            if (!currentHandle) return;
+            e.preventDefault();
+
+            const clientX = e.type === 'touchmove' ? e.touches[0].clientX : e.clientX;
+            const diff = clientX - startX;
+            
+            const target = currentHandle.dataset.resize === 'pdf' 
+                ? document.querySelector('.pdf-section') 
+                : document.querySelector('.dashboard-section');
+
+            const minWidth = currentHandle.dataset.resize === 'pdf' ? 420 : 300;
+            const maxWidth = currentHandle.dataset.resize === 'pdf' ? 680 : 450;
+            
+            let newWidth = startWidth + (currentHandle.dataset.resize === 'pdf' ? diff : -diff);
+            newWidth = Math.max(minWidth, Math.min(maxWidth, newWidth));
+
+            target.style.width = newWidth + 'px';
+            target.style.flex = 'none';
+        }
+
+        function stopResize() {
+            if (!currentHandle) return;
+            currentHandle.style.background = '';
+            currentHandle = null;
+            document.removeEventListener('mousemove', doResize);
+            document.removeEventListener('mouseup', stopResize);
+            document.removeEventListener('touchmove', doResize);
+            document.removeEventListener('touchend', stopResize);
+        }
+    })();
+
+    // ==========================================
+    // PDF ZOOM - CSS Transform Method (WORKING!)
+    // =========================================
+    
+    function applyPdfZoom() {
+        const wrapper = document.getElementById('pdf-iframe-wrapper');
+        if (!wrapper) return;
+        
+        const iframe = wrapper.querySelector('iframe');
+        if (!iframe) return;
+        
+        // Apply scale transform to iframe
+        const scale = pdfZoomLevel / 100;
+        iframe.style.transform = `scale(${scale})`;
+        
+        // Adjust wrapper overflow based on zoom level
+        if (scale > 1) {
+            wrapper.style.overflow = 'auto';
+        } else {
+            wrapper.style.overflow = 'hidden';
+        }
+        
+        // Update display
+        const zoomDisplay = document.getElementById('zoom-level');
+        if (zoomDisplay) {
+            zoomDisplay.textContent = pdfZoomLevel + '%';
+        }
+    }
+
+    function zoomIn() {
+        if (pdfZoomLevel < 300) {
+            pdfZoomLevel += 25;
+            applyPdfZoom();
+        }
+    }
+
+    function zoomOut() {
+        if (pdfZoomLevel > 25) {
+            pdfZoomLevel -= 25;
+            applyPdfZoom();
+        }
+    }
+
+    function resetZoom() {
+        pdfZoomLevel = 100;
+        pdfRotation = 0;
+        applyPdfZoom();
+        
+        const wrapper = document.getElementById('pdf-iframe-wrapper');
+        if (wrapper) wrapper.style.transform = '';
+    }
+
+    function fitToWidth() {
+        pdfZoomLevel = 100;
+        applyPdfZoom();
+    }
+
+    function rotatePDF() {
+        pdfRotation = (pdfRotation + 90) % 360;
+        const wrapper = document.getElementById('pdf-iframe-wrapper');
+        if (wrapper) {
+            wrapper.style.transform = pdfRotation !== 0 ? `rotate(${pdfRotation}deg)` : '';
+        }
+    }
+
+    // ==========================================
+    // DOM ELEMENTS
+    // ==========================================
+    const fileInput = document.getElementById('file-input-hidden');
+    const queryForm = document.getElementById('query-form');
+    const queryInput = document.getElementById('query-input');
+    const sendBtn = document.getElementById('send-btn');
+    const messageContainer = document.getElementById('message-container');
+    const uploadArea = document.getElementById('upload-area');
+    const pdfIframeWrapper = document.getElementById('pdf-iframe-wrapper');
+    const testResultsList = document.getElementById('test-results-list');
+
+    const dashScoreValue = document.getElementById('dash-score-value');
+    const dashScoreStatus = document.getElementById('dash-score-status');
+    const dashScoreStats = document.getElementById('dash-score-stats');
+    const alertAbnormalCount = document.getElementById('alert-abnormal-count');
+    const alertNormalCount = document.getElementById('alert-normal-count');
+    const attentionCard = document.getElementById('attention-card');
+    const attentionCount = document.getElementById('attention-count');
+
+    // ==========================================
+    // FILE UPLOAD
+    // ==========================================
+    fileInput.addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        addMessage('bot', `📤 <strong>Processing ${file.name}...</strong><br>Please wait while I extract and analyze the data...`, 'info');
+
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+
+            const response = await fetch('/api/upload/', { method: 'POST', body: formData });
+            
+            if (!response.ok) throw new Error(`Server error: ${response.status}`);
+            
+            const result = await response.json();
+
+            queryInput.disabled = false;
+            sendBtn.disabled = false;
+            queryInput.placeholder = "Ask about your report...";
+            queryInput.focus();
+
+            // Show PDF with zoom initialization
+            if (file.type === 'application/pdf') {
+                if (currentPdfUrl) URL.revokeObjectURL(currentPdfUrl);
+                currentPdfUrl = URL.createObjectURL(file);
+                
+                if (uploadArea) uploadArea.style.display = 'none';
+                
+                if (pdfIframeWrapper) {
+                    pdfIframeWrapper.classList.add('active');
+                    pdfIframeWrapper.innerHTML = `<iframe src="${currentPdfUrl}" id="pdf-iframe" style="width:100%;height:100%;border:none;"></iframe>`;
+                    
+                    setTimeout(() => applyPdfZoom(), 500);
+                }
+                
+                const zoomDisplay = document.getElementById('zoom-level');
+                if (zoomDisplay) zoomDisplay.textContent = pdfZoomLevel + '%';
+            }
+
+            handleUploadResponse(result);
+
+        } catch (error) {
+            addMessage('bot', `❌ <strong>Error:</strong> ${error.message}`, 'error');
+        }
+    });
+
+    // ==========================================
+    // QUERY HANDLER
+    // ==========================================
+    queryForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const question = queryInput.value.trim();
+        if (!question) return;
+
+        addMessage('user', question);
+        queryInput.value = '';
+
+        const typingId = showTypingIndicator();
+
+        try {
+            const response = await fetch('/api/query/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ question })
+            });
+
+            if (!response.ok) throw new Error(`Query failed: ${response.status}`);
+            
+            const data = await response.json();
+            removeTypingIndicator(typingId);
+            handleQueryResponse(data, question);
+
+        } catch (error) {
+            removeTypingIndicator(typingId);
+            addMessage('bot', `❌ <strong>Error:</strong> ${error.message}`, 'error');
+        }
+    });
+
+    // ==========================================
+    // RESPONSE HANDLERS
+    // ==========================================
+    function handleUploadResponse(result) {
+        let msg = '';
+        if (result.message) msg += `✅ ${result.message}<br><br>`;
+        if (result.test_count !== undefined) msg += `🔬 <strong>Tests Found:</strong> ${result.test_count}<br>`;
+        if (result.abnormal_count > 0) msg += `⚠️ <strong>Abnormal:</strong> ${result.abnormal_count}<br>`;
+        
+        addMessage('bot', msg || '✅ Report uploaded successfully!', 'success');
+        setTimeout(() => fetchDashboardData(), 500);
+    }
+
+    function handleQueryResponse(data) {
+        if (data.type === 'table' && Array.isArray(data.data)) {
+            cachedTableData = data.data;
+            updateDashboardFromTableData(data.data);
+            addMessage('bot', createEnhancedTableHtml(data.data));
+        } else if (data.type === 'text') {
+            const scoreMatch = data.answer?.match(/Health Score:\s*(\d+\.?\d*)\/?\s*100\s*[—\-–]\s*(.*?)(?:\n|$)/i);
+            if (scoreMatch) {
+                updateHealthScore(parseFloat(scoreMatch[1]), scoreMatch[2].trim());
+            }
+            addMessage('bot', `<div class="response-card markdown-content">${formatMarkdown(data.answer)}</div>`);
+        } else {
+            addMessage('bot', formatMarkdown(JSON.stringify(data)));
+        }
+    }
+
+    // ==========================================
+    // TAB FILTERING
+    // ==========================================
+    function filterTests(filterType, btnElement) {
+        currentFilter = filterType;
+        document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+        if (btnElement) btnElement.classList.add('active');
+        if (cachedTableData.length > 0) {
+            renderTestResults(cachedTableData, filterType);
+        }
+    }
+
+    // ==========================================
+    // DASHBOARD UPDATE FUNCTIONS
+    // ==========================================
+    async function fetchDashboardData() {
+        try {
+            showLoadingState();
+            const response = await fetch('/api/query/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ question: 'show all tests' })
+            });
+            const data = await response.json();
+            if (data.type === 'table' && Array.isArray(data.data)) {
+                cachedTableData = data.data;
+                updateDashboardFromTableData(data.data);
+            }
+        } catch (e) {
+            console.log('Dashboard fetch skipped:', e.message);
+        }
+    }
+
+    function updateDashboardFromTableData(data) {
+        if (!Array.isArray(data) || data.length === 0) return;
+
+        const critical = data.filter(r => r.status === 'HIGH').length;
+        const abnormal = data.filter(r => r.status === 'HIGH' || r.status === 'LOW').length;
+        const normal = data.filter(r => r.status === 'NORMAL').length;
+
+        if (alertAbnormalCount) alertAbnormalCount.textContent = abnormal;
+        if (alertNormalCount) alertNormalCount.textContent = normal;
+
+        if (dashScoreStats) {
+            dashScoreStats.innerHTML = `
+                <div class="stat-item"><span class="stat-dot critical"></span><span style="color:var(--text-secondary)">${critical} critical</span></div>
+                <div class="stat-item"><span class="stat-dot abnormal"></span><span style="color:var(--text-secondary)">${abnormal} abnormal</span></div>
+                <div class="stat-item"><span class="stat-dot normal"></span><span style="color:var(--text-secondary)">${normal} normal</span></div>
+            `;
+        }
+
+        if (abnormal > 0) {
+            if (attentionCard) attentionCard.style.display = 'block';
+            if (attentionCount) attentionCount.textContent = `${abnormal} value${abnormal !== 1 ? 's' : ''} outside reference range`;
+        } else {
+            if (attentionCard) attentionCard.style.display = 'none';
+        }
+
+        renderTestResults(data, currentFilter);
+
+        const score = Math.round(((data.length - abnormal) / data.length) * 100);
+        let status = 'Excellent';
+        if (score < 80) status = 'Good';
+        if (score < 60) status = 'Moderate';
+        if (score < 40) status = 'Needs Attention';
+        
+        updateHealthScore(score, status);
+    }
+
+    // ==========================================
+    // 🔧 SHARED VALUE FORMATTING FUNCTION (FIXES PERCENTAGES!)
+    // ==========================================
+    function formatValue(item) {
+        let displayValue = item.value || '--';
+        let displayUnit = item.unit || '';
+        
+        // Case 1: Unit is % and value is decimal (< 1 and > 0)
+        if ((displayUnit === '%' || displayUnit.includes('%')) && 
+            parseFloat(displayValue) < 1 && 
+            parseFloat(displayValue) > 0 &&
+            parseFloat(displayValue) !== 0) {
+            
+            displayValue = (parseFloat(displayValue) * 100).toFixed(1);
+            
+            // Remove trailing .0 for cleaner display (57.5 not 57.50)
+            if (displayValue.endsWith('.0')) {
+                displayValue = displayValue.slice(0, -2);
+            }
+        }
+        // Case 2: Known percentage-based tests that commonly return decimals
+        else {
+            const percentKeywords = [
+                'hematocrit', 'hct', 'pcv', 'packed cell', 'packed cell volume',
+                'mcv', 'mean corpuscular', 'rdw', 'red cell distribution',
+                'neutrophil', 'lymphocyte', 'eosinophil', 'monocyte', 'basophil',
+                'platelet'
+            ];
+            
+            const testNameLower = (item.test || '').toLowerCase();
+            const isPercentTest = percentKeywords.some(keyword => testNameLower.includes(keyword));
+            
+            if (isPercentTest && 
+                parseFloat(displayValue) < 1 && 
+                parseFloat(displayValue) > 0) {
+                
+                displayValue = (parseFloat(displayValue) * 100).toFixed(1);
+                
+                // Remove trailing .0
+                if (displayValue.endsWith('.0')) {
+                    displayValue = displayValue.slice(0, -2);
+                }
+                
+                // Add % sign if missing
+                if (!displayUnit.includes('%')) {
+                    displayUnit = '%';
+                }
+            }
+        }
+        
+        return { value: displayValue, unit: displayUnit };
+    }
+
+    // ==========================================
+    // CHAT TABLE RENDERING (NOW USES formatValue!)
+    // ==========================================
+    function createEnhancedTableHtml(data) {
+        if (!data?.length) return '<div class="response-card"><p>No data available.</p></div>';
+
+        const abnormal = data.filter(r => r.status === 'HIGH' || r.status === 'LOW').length;
+        const normal = data.filter(r => r.status === 'NORMAL').length;
+
+        let html = `<div class="response-card">
+            <div style="display:flex;gap:16px;margin-bottom:14px;font-size:13px;color:var(--text-secondary);">
+                <span>📊 ${data.length} total</span>
+                <span style="color:#fca5a5;">⚠️ ${abnormal} abnormal</span>
+                <span style="color:#86efac;">✅ ${normal} normal</span>
+            </div>
+            <table class="results-table">
+                <thead><tr><th>Test</th><th>Value</th><th>Unit</th><th>Range</th><th>Status</th></tr></thead><tbody>`;
+
+        data.forEach(row => {
+            const cls = row.status === 'HIGH' ? 'status-high' : row.status === 'LOW' ? 'status-low' : 'status-normal';
+            
+            // ✅ FIX: Apply smart formatting!
+            const formatted = formatValue(row);
+            
+            html += `<tr>
+                <td><strong>${escapeHtml(row.test)}</strong></td>
+                <td>${formatted.value}</td>
+                <td>${formatted.unit}</td>
+                <td style="color:var(--text-muted);font-size:12px;">${escapeHtml(row.range)}</td>
+                <td><span class="${cls}">${row.status}</span></td>
+            </tr>`;
+        });
+
+        html += '</tbody></table></div>';
+        return html;
+    }
+
+    // ==========================================
+    // DASHBOARD LIST RENDERING (NOW USES formatValue!)
+    // ==========================================
+    function renderTestResults(data, filter = 'all') {
+        if (!testResultsList) {
+            console.error('test-results-list element not found!');
+            return;
+        }
+        
+        let filteredData = data;
+        
+        if (filter === 'abnormal') {
+            filteredData = data.filter(item => item.status === 'HIGH' || item.status === 'LOW');
+        } else if (filter === 'normal') {
+            filteredData = data.filter(item => item.status === 'NORMAL');
+        }
+
+        if (filteredData.length === 0) {
+            testResultsList.innerHTML = `
+                <div class="empty-state">
+                    <div class="empty-state-icon">${filter === 'abnormal' ? '✅' : filter === 'normal' ? '⚠️' : '📊'}</div>
+                    <p class="empty-state-text">${
+                        filter === 'abnormal' ? 'No abnormal values! All tests are within range.' :
+                        filter === 'normal' ? 'No normal values to display.' :
+                        'No test data available.'
+                    }</p>
+                </div>
+            `;
+            return;
+        }
+
+        let html = '';
+        filteredData.forEach(item => {
+            const isHigh = item.status === 'HIGH';
+            const isLow = item.status === 'LOW';
+            const isAbnormal = isHigh || isLow;
+            const trendIcon = isHigh ? '↗' : isLow ? '↘' : '→';
+            const valueClass = isHigh ? 'high' : isLow ? 'low' : 'normal';
+            const statusText = isHigh ? 'High' : isLow ? 'Low' : 'Normal';
+
+            // ✅ FIX: Use shared helper function
+            const formatted = formatValue(item);
+
+            html += `
+                <div class="test-result-item">
+                    <div class="test-left">
+                        <div class="test-name">${escapeHtml(item.test || 'Unknown')} <span class="trend-icon">${trendIcon}</span></div>
+                        <div class="test-ref">ref: ${escapeHtml(item.range || 'N/A')}</div>
+                    </div>
+                    <div class="test-right">
+                        <span class="test-value ${valueClass}">${formatted.value}</span>
+                        <span class="test-unit">${escapeHtml(formatted.unit)}</span>
+                        <span class="test-status-badge ${isAbnormal ? (isHigh ? 'high' : 'low') : 'normal'}">${statusText}</span>
+                    </div>
+                </div>
+            `;
+        });
+
+        testResultsList.innerHTML = `<div class="test-results-list">${html}</div>`;
+    }
+
+    function updateHealthScore(score, status) {
+        if (isNaN(score)) score = 0;
+        score = Math.max(0, Math.min(100, Math.round(score)));
+        
+        if (dashScoreValue) dashScoreValue.textContent = score;
+        if (dashScoreStatus) dashScoreStatus.textContent = status || 'Calculating...';
+    }
+
+    // ==========================================
+    // UI HELPERS
+    // ==========================================
+    function showLoadingState() {
+        if (!testResultsList) return;
+        testResultsList.innerHTML = `
+            <div class="empty-state">
+                <div class="empty-state-icon">⏳</div>
+                <p class="empty-state-text">Loading test results...</p>
+            </div>
+        `;
+    }
+
+    function addMessage(sender, content, type = '') {
+        const div = document.createElement('div');
+        div.className = `message ${sender}`;
+        
+        let extraStyle = '';
+        if (type === 'success') extraStyle = 'color: #86efac;';
+        else if (type === 'error') extraStyle = 'color: #fca5a5;';
+        else if (type === 'info') extraStyle = 'color: #93c5fd;';
+
+        div.innerHTML = `<div class="content" style="${extraStyle}">${content}</div>`;
+        messageContainer.appendChild(div);
+        scrollToBottom();
+    }
+
+    function showTypingIndicator() {
+        const id = 'typing-' + Date.now();
+        const div = document.createElement('div');
+        div.id = id;
+        div.className = 'message bot';
+        div.innerHTML = `
+            <div class="content" style="padding: 20px 24px;">
+                <div style="display:flex;gap:6px;">
+                    <span style="width:8px;height:8px;background:#64748b;border-radius:50%;animation:bounce 1.4s infinite both;"></span>
+                    <span style="width:8px;height:8px;background:#64748b;border-radius:50%;animation:bounce 1.4s infinite both 0.16s;"></span>
+                    <span style="width:8px;height:8px;background:#64748b;border-radius:50%;animation:bounce 1.4s infinite both 0.32s;"></span>
+                </div>
+            </div>
+            <style>@keyframes bounce{0%,80%,100%{transform:scale(0.6)}40%{transform:scale(1)}}</style>
+        `;
+        messageContainer.appendChild(div);
+        scrollToBottom();
+        return id;
+    }
+
+    function removeTypingIndicator(id) {
+        const el = document.getElementById(id);
+        if (el) el.remove();
+    }
+
+    function scrollToBottom() {
+        requestAnimationFrame(() => {
+            messageContainer.scrollTo({ top: messageContainer.scrollHeight, behavior: 'smooth' });
+        });
+    }
+
+    function escapeHtml(text) {
+        if (!text) return '';
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    function formatMarkdown(text) {
+        if (!text) return '';
+        return escapeHtml(text)
+            .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+            .replace(/\n/g, '<br>')
+            .replace(/^•\s+(.+)$/gm, '<li>$1</li>');
+    }
+
+    // ==========================================
+    // QUICK PROMPTS & KEYBOARD
+    // ==========================================
+    document.querySelectorAll('.quick-prompt-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            if (queryInput.disabled) return;
+            queryInput.value = btn.dataset.query;
+            queryForm.dispatchEvent(new Event('submit'));
+        });
+    });
+
+    queryInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            queryForm.dispatchEvent(new Event('submit'));
+        }
+    });
+
+    messageContainer.addEventListener('click', () => {
+        if (!queryInput.disabled) queryInput.focus();
+    });
+
+</script>
+
 </body>
 </html>
